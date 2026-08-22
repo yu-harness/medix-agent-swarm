@@ -1,0 +1,111 @@
+{
+  "meta": {
+    "seed": 42,
+    "per_category": 50,
+    "n_target": 200,
+    "semaphore": 1,
+    "timeout_sec": 120.0,
+    "data": "D:\\md\\AI实习\\project\\居丽叶简历项目7：医疗助手\\medix-agent-swarm\\eval\\data\\benchmark_500.jsonl",
+    "detail_path": "eval\\results\\agent_eval_detail_full200.jsonl",
+    "emb_high": 0.75,
+    "emb_low": 0.45,
+    "reuse_coordinator": true,
+    "started_at": "2026-07-27T09:15:26.772550+00:00",
+    "finished_at": "2026-07-27T10:56:51.803482+00:00",
+    "elapsed_sec": 6085.0
+  },
+  "summary": {
+    "n": 200,
+    "correct": 58,
+    "partial": 111,
+    "exact_accuracy": 0.29,
+    "partial_rate": 0.555,
+    "latency": {
+      "mean": 32.547,
+      "p50": 22.604,
+      "p95": 76.706,
+      "n": 200
+    },
+    "by_category": {
+      "health_consult": {
+        "n": 50,
+        "correct": 7,
+        "partial": 36,
+        "exact_accuracy": 0.14,
+        "partial_rate": 0.72
+      },
+      "symptom_diagnosis": {
+        "n": 50,
+        "correct": 8,
+        "partial": 27,
+        "exact_accuracy": 0.16,
+        "partial_rate": 0.54
+      },
+      "disease_knowledge": {
+        "n": 50,
+        "correct": 16,
+        "partial": 27,
+        "exact_accuracy": 0.32,
+        "partial_rate": 0.54
+      },
+      "guideline_retrieval": {
+        "n": 50,
+        "correct": 27,
+        "partial": 21,
+        "exact_accuracy": 0.54,
+        "partial_rate": 0.42
+      }
+    },
+    "error_top": [
+      [
+        "skipped_due_to_low_embedding",
+        5
+      ],
+      [
+        "遗漏胸闷气短、诱因（犯罪/疾病/影视）及精神刺激关键点，但定义和常见原因正确。",
+        1
+      ],
+      [
+        "标准答案目标血压<130/80，系统回答依年龄分层，遗漏明确目标及ACEI/ARB+利尿剂首选。",
+        1
+      ],
+      [
+        "未覆盖标准答案中检查女方子宫、卵巢、输卵管及男方精液等不孕因素的关键信息",
+        1
+      ],
+      [
+        "遗漏碘伏是络合碘、用于黏膜和金属禁用等关键信息，但杀菌和主要用途正确。",
+        1
+      ],
+      [
+        "遗漏了口服槐角丸、痔速宁片及手术等关键治疗信息，但覆盖了坐浴、饮食和外用药。",
+        1
+      ],
+      [
+        "系统回答错误给出二级预防目标，且一级预防目标与标准答案的<130/80mmHg明显不符。",
+        1
+      ],
+      [
+        "未明确区分病毒、细菌、支原体感染及对应药物，遗漏奥司他韦、阿奇霉素等关键信息",
+        1
+      ],
+      [
+        "覆盖了营养、睡眠、运动等原则，但遗漏标准答案中的具体药物建议（葡萄糖酸锌、合生元、斯奇康等）",
+        1
+      ],
+      [
+        "覆盖了主食、蔬菜等要点，但遗漏标准答案中提及的蜜饯、罐头等需避免的食物。",
+        1
+      ]
+    ],
+    "verdict_counts": {
+      "correct": 58,
+      "partial": 111,
+      "incorrect": 31
+    },
+    "mode_counts": {
+      "single_agent": 131,
+      "swarm": 69
+    }
+  }
+}

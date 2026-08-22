@@ -1,0 +1,74 @@
+# 环境变量
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 虚拟环境
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 日志
+*.log
+
+# 测试
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 记忆数据
+/tmp/qdrant/
+.mem0/
+
+# 会话记录
+session_summaries/*.md
+agent_identities/*.md
+
+# 评测：原始下载与私有完整集
+eval/raw/
+eval/data/benchmark_500.jsonl
+eval/data/benchmark_build_meta.json
+
+# Secrets / local config
+config.py
+*.pem
+*.key
+credentials.json
+
+
+.venv/
+
+
+# Local vector DB
+milvus_demo.db
+*.db
+.milvus/
+volumes/
+*.db.bak

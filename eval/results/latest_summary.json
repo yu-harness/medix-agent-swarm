@@ -1,0 +1,111 @@
+{
+  "meta": {
+    "seed": 42,
+    "per_category": 10,
+    "n_target": 40,
+    "semaphore": 2,
+    "timeout_sec": 120.0,
+    "data": "D:\\md\\AI实习\\project\\居丽叶简历项目7：医疗助手\\medix-agent-swarm\\eval\\data\\benchmark_500.jsonl",
+    "detail_path": "D:\\md\\AI实习\\project\\居丽叶简历项目7：医疗助手\\medix-agent-swarm\\eval\\results\\agent_eval_detail_opt13_quick40.jsonl",
+    "emb_high": 0.75,
+    "emb_low": 0.45,
+    "reuse_coordinator": true,
+    "started_at": "2026-08-03T07:31:30.123222+00:00",
+    "finished_at": "2026-08-03T07:45:42.678459+00:00",
+    "elapsed_sec": 852.6
+  },
+  "summary": {
+    "n": 40,
+    "correct": 24,
+    "partial": 12,
+    "exact_accuracy": 0.6,
+    "partial_rate": 0.3,
+    "latency": {
+      "mean": 31.901,
+      "p50": 22.123,
+      "p95": 69.868,
+      "n": 40
+    },
+    "by_category": {
+      "health_consult": {
+        "n": 10,
+        "correct": 6,
+        "partial": 2,
+        "exact_accuracy": 0.6,
+        "partial_rate": 0.2
+      },
+      "symptom_diagnosis": {
+        "n": 10,
+        "correct": 5,
+        "partial": 5,
+        "exact_accuracy": 0.5,
+        "partial_rate": 0.5
+      },
+      "disease_knowledge": {
+        "n": 10,
+        "correct": 6,
+        "partial": 3,
+        "exact_accuracy": 0.6,
+        "partial_rate": 0.3
+      },
+      "guideline_retrieval": {
+        "n": 10,
+        "correct": 7,
+        "partial": 2,
+        "exact_accuracy": 0.7,
+        "partial_rate": 0.2
+      }
+    },
+    "error_top": [
+      [
+        "覆盖来源和基原，但遗漏别名、产地及生用等关键信息，功效扩展较多",
+        1
+      ],
+      [
+        "系统回答推荐枸橼酸钙并给出详细建议，但未覆盖标准答案中钙剂对血糖无干扰及可服用钙剂类型等关键信息。",
+        1
+      ],
+      [
+        "标准答案认为喝醋有一定作用，系统回答明确否定且未覆盖该观点，存在严重矛盾。",
+        1
+      ],
+      [
+        "覆盖缓激肽拮抗、抗炎、抗凝、抗动脉粥样硬化等关键点，但遗漏降低ADP血小板聚集3小时及对心脑血管疗效较差等细节",
+        1
+      ],
+      [
+        "未覆盖标准答案核心：目标血压<130/80及首选ACEI/ARB+利尿剂，仅强调SGLT2i，关键信息遗漏",
+        1
+      ],
+      [
+        "覆盖了二氯乙酰胺衍生物、口服吸收少、肠腔浓度高，但未明确提及与糠酸二氯尼特相似用法。",
+        1
+      ],
+      [
+        "系统回答覆盖分期、治疗等关键点，但未涉及护理和自身体能，且强调治愈率与标准答案侧重不同，遗漏明显。",
+        1
+      ],
+      [
+        "覆盖了多喝水、忌辛辣、通风等建议，但未提及金嗓子喉宝或吴太咽炎片等具体药物，关键信息有遗漏。",
+        1
+      ],
+      [
+        "系统回答内容为GLP-1受体激动剂，而标准答案要求α-葡萄糖苷酶抑制剂，完全答非所问。",
+        1
+      ],
+      [
+        "标准答案强调需综合肠管内气体、液体及蠕动情况判断，系统回答仅围绕回声增强展开，未覆盖该关键信息。",
+        1
+      ]
+    ],
+    "verdict_counts": {
+      "correct": 24,
+      "partial": 12,
+      "incorrect": 4
+    },
+    "mode_counts": {
+      "single_agent": 30,
+      "swarm": 10
+    }
+  }
+}

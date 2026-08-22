@@ -1,0 +1,72 @@
+{
+  "meta": {
+    "seed": 42,
+    "per_category": 50,
+    "n_target": 3,
+    "semaphore": 1,
+    "timeout_sec": 120.0,
+    "data": "D:\\md\\AI实习\\project\\居丽叶简历项目7：医疗助手\\medix-agent-swarm\\eval\\data\\benchmark_500.jsonl",
+    "detail_path": "D:\\md\\AI实习\\project\\居丽叶简历项目7：医疗助手\\medix-agent-swarm\\eval\\results\\agent_eval_detail_smoke.jsonl",
+    "emb_high": 0.75,
+    "emb_low": 0.45,
+    "started_at": "2026-07-27T08:44:37.131416+00:00",
+    "finished_at": "2026-07-27T08:45:51.951189+00:00",
+    "elapsed_sec": 74.8
+  },
+  "summary": {
+    "n": 3,
+    "correct": 2,
+    "partial": 1,
+    "exact_accuracy": 0.6667,
+    "partial_rate": 0.3333,
+    "latency": {
+      "mean": 23.815,
+      "p50": 18.927,
+      "p95": 34.996,
+      "n": 3
+    },
+    "by_category": {
+      "health_consult": {
+        "n": 0,
+        "correct": 0,
+        "partial": 0,
+        "exact_accuracy": null,
+        "partial_rate": null
+      },
+      "symptom_diagnosis": {
+        "n": 0,
+        "correct": 0,
+        "partial": 0,
+        "exact_accuracy": null,
+        "partial_rate": null
+      },
+      "disease_knowledge": {
+        "n": 0,
+        "correct": 0,
+        "partial": 0,
+        "exact_accuracy": null,
+        "partial_rate": null
+      },
+      "guideline_retrieval": {
+        "n": 3,
+        "correct": 2,
+        "partial": 1,
+        "exact_accuracy": 0.6667,
+        "partial_rate": 0.3333
+      }
+    },
+    "error_top": [
+      [
+        "遗漏标准答案中ACEI/ARB+利尿剂为首选，错误引入螺内酯为关键药物。",
+        1
+      ]
+    ],
+    "verdict_counts": {
+      "correct": 2,
+      "partial": 1
+    },
+    "mode_counts": {
+      "single_agent": 3
+    }
+  }
+}
