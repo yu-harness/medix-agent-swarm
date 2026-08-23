@@ -16,11 +16,15 @@ from .llm_client import LLMResponse
 # Harness Engineering: 约束验证和自动修复
 try:
     from constraints import ConstraintValidator
+    from constraints.validator import is_constraint_enforce_enabled
     from validation import AutoFixer
     CONSTRAINTS_ENABLED = True
 except ImportError:
     logger.warning("Constraints module not found, running without constraint validation")
     CONSTRAINTS_ENABLED = False
+
+    def is_constraint_enforce_enabled() -> bool:  # type: ignore
+        return False
 
 
 def _sanitize_final_answer(text: str) -> str:
@@ -115,11 +119,12 @@ class AgentLoop:
         self.short_term_memory = short_term_memory
         self.tool_call_count = 0
 
-        # Harness Engineering: 约束验证器和自动修复器
+        # Harness Engineering: 约束验证器和自动修复器（默认 warn；CONSTRAINT_ENFORCE=1 时硬拦）
         self.validator = ConstraintValidator() if CONSTRAINTS_ENABLED else None
         self.auto_fixer = AutoFixer() if CONSTRAINTS_ENABLED else None
         if CONSTRAINTS_ENABLED:
-            logger.debug("✅ Constraint validation enabled")
+            mode = "enforce" if is_constraint_enforce_enabled() else "warn"
+            logger.debug(f"✅ Constraint validation enabled (mode={mode})")
 
     async def run(self, agent, input_data: Dict[str, Any], session_id: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -148,11 +153,16 @@ class AgentLoop:
         try:
             state.status = TaskStatus.IN_PROGRESS
 
-            # 初始化消息历史（包含历史对话）
-            messages = self._initialize_messages(agent, input_data, session_id)
+            record_memory = bool(input_data.get("record_memory", True))
+            load_history = bool(input_data.get("load_history", True))
 
-            # 记录用户消息到短期记忆
-            if self.short_term_memory and session_id:
+            # 初始化消息历史（包含历史对话）
+            messages = self._initialize_messages(
+                agent, input_data, session_id if load_history else None
+            )
+
+            # 记录用户消息到短期记忆（Swarm 子任务可关闭，避免污染主诉）
+            if record_memory and self.short_term_memory and session_id:
                 user_message = messages[-1]["content"] if messages else str(input_data)
                 self.short_term_memory.add_message(
                     session_id=session_id,
@@ -211,7 +221,7 @@ class AgentLoop:
                         messages.append(self._create_assistant_message_with_tools(llm_response))
 
                         # 记录 assistant 消息到短期记忆
-                        if self.short_term_memory and session_id:
+                        if record_memory and self.short_term_memory and session_id:
                             tool_names = [tc.name for tc in llm_response.tool_calls]
                             self.short_term_memory.add_message(
                                 session_id=session_id,
@@ -225,16 +235,42 @@ class AgentLoop:
                             self.tool_call_count += 1
                             logger.debug(f"Executing: {tool_call.name}({tool_call.arguments}) - 第 {self.tool_call_count} 次调用")
 
-                            # Harness Engineering: 验证调用
+                            # Harness Engineering: 验证调用（warn 只记日志；enforce 不执行并回写拒绝原因）
+                            blocked = False
                             if self.validator:
                                 validation_result = self.validator.validate_tool_call(
                                     agent.agent_id,
                                     tool_call.name
                                 )
                                 if not validation_result.get("valid"):
-                                    logger.warning(
-                                        f"⚠️ 约束警告: {validation_result.get('reason')}"
-                                    )
+                                    reason = validation_result.get("reason") or "Skill 不被允许"
+                                    if is_constraint_enforce_enabled():
+                                        blocked = True
+                                        logger.warning(f"🚫 约束拦截(blocked): {reason}")
+                                        tool_result = {
+                                            "success": False,
+                                            "blocked": True,
+                                            "error": reason,
+                                            "allowed_tools": validation_result.get("allowed_tools", []),
+                                        }
+                                        messages.append(
+                                            agent.llm_client.create_tool_message(
+                                                tool_call_id=tool_call.id,
+                                                tool_name=tool_call.name,
+                                                result=tool_result,
+                                            )
+                                        )
+                                        if record_memory and self.short_term_memory and session_id:
+                                            self.short_term_memory.add_message(
+                                                session_id=session_id,
+                                                role="tool",
+                                                content=f"{tool_call.name}: blocked — {reason}",
+                                            )
+                                    else:
+                                        logger.info(f"⚠️ 约束警告(warned): {reason}")
+
+                            if blocked:
+                                continue
 
                             tool_result = await agent.execute_tool(
                                 tool_name=tool_call.name,
@@ -251,7 +287,7 @@ class AgentLoop:
                             )
 
                             # 记录结果到短期记忆（同样用紧凑格式化）
-                            if self.short_term_memory and session_id:
+                            if record_memory and self.short_term_memory and session_id:
                                 result_summary = _format_tool_result_for_context(tool_result)
                                 self.short_term_memory.add_message(
                                     session_id=session_id,
@@ -307,7 +343,7 @@ class AgentLoop:
                                         final_answer = fixed_answer
 
                         # 记录最终回答到短期记忆
-                        if self.short_term_memory and session_id:
+                        if record_memory and self.short_term_memory and session_id:
                             self.short_term_memory.add_message(
                                 session_id=session_id,
                                 role="assistant",
@@ -363,7 +399,7 @@ class AgentLoop:
                     }
 
                     # 记录最终回答到短期记忆
-                    if self.short_term_memory and session_id:
+                    if record_memory and self.short_term_memory and session_id:
                         self.short_term_memory.add_message(
                             session_id=session_id,
                             role="assistant",

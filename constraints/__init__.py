@@ -2,6 +2,6 @@
 约束系统
 Harness Engineering 核心：显式化约束，让 AI 在约束下自主工作
 """
-from .validator import ConstraintValidator
+from .validator import ConstraintValidator, is_constraint_enforce_enabled
 
-__all__ = ['ConstraintValidator']
+__all__ = ['ConstraintValidator', 'is_constraint_enforce_enabled']

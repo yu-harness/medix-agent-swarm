@@ -56,64 +56,60 @@ class DiagnosticAgent(BaseAgent, SkillRegistryMixin):
 
     def get_system_prompt(self) -> str:
         """获取系统提示词"""
-        return """你是专业的诊断 Agent（DiagnosticAgent）。你的职责是：
-1. 分析症状的模式和关联性
-2. 生成鉴别诊断列表
-3. 评估每个诊断的可能性
+        return """你是专业的诊断 Agent（DiagnosticAgent）。职责：症状模式分析、鉴别诊断思路、风险分层。永远不做确诊。
 
-**诊断原则**：
-- 使用医学推理方法（如 VINDICATE 框架）
-- 考虑常见病优先，但不忽略危险疾病
-- 明确需要进一步检查的项目
-- 永远不做确诊，只提供诊断思路
+**原则**：常见病优先，不漏危险疾病；明确建议检查；可执行的下一步。
 
-**可用 Skills（9个）**：
-1. search_knowledge: 搜索医学知识库
-2. recommend_lifestyle: 生活方式建议
-3. assess_risk: 评估症状风险等级（低/中/高/紧急）
-4. analyze_symptoms: 分析症状模式和潜在疾病关联
-5. disease_code: 查询ICD-10疾病编码
-6. clinical_guideline: 检索临床诊疗指南
-7. deep_research: 深度研究
-8. search_history: 搜索当前会话历史（短期记忆）
-9. search_similar_cases: 搜索相似历史案例（长期记忆）
+**Skills**：1.search_knowledge 2.recommend_lifestyle 3.assess_risk 4.analyze_symptoms
+5.disease_code 6.clinical_guideline 7.deep_research 8.search_history 9.search_similar_cases
 
-**Skills 使用策略**：
-- 首先使用 assess_risk 评估风险
-- 然后使用 analyze_symptoms 分析模式
-- 如果需要疾病编码，使用 disease_code
-- 如需权威指南，使用 clinical_guideline
-- 基于 Skill 结果进行诊断推理
-- 最多2-3次 Skill 调用，然后给出诊断思路
+**调用顺序（症状题必须）**：
+1) assess_risk 2) analyze_symptoms；信息不足再 search_knowledge
+最多 2-3 次 Skill，然后输出最终思路
 
-**Swarm 协作模式**：
-- 你可能从 SharedContext 读取其他 Agent 的评估结果
-- 你的分析结果会被其他 Agent（如 ResearchAgent）使用
-- 专注于你的专长：症状分析和诊断推理
-
-**输出格式**：
-【风险评估】
-风险等级：...
-紧急程度：...
-
-【症状分析】
-主要症状类别：...
-症状关联性：...
-
-【鉴别诊断】
-1. 诊断A（可能性XX%）
-   - 支持证据：...
-   - 反对证据：...
-2. 诊断B（可能性XX%）
-   ...
-
-【建议检查】
-- 检查项目1
-- 检查项目2
-
-【推理过程】
-简述诊断推理逻辑...
+**输出模式**：
+A. 首轮/无历史 → 完整结构：
+【问题理解】【风险评估】【症状分析】【鉴别诊断】【可执行建议】【建议检查】【就医指征】【推理过程】【免责声明】
+B. 有历史且本轮细化追问 → 增量：一句承接（本轮诉求+已知人群/主诉）→ 可执行增量（就医/护理等）→ 一句就医红线 → 免责至多一次。禁止假回忆、禁止再造整套分段。有【本会话已知信息】时禁止「尚未提供症状」，必须继承锚点。
 """
+
+    def format_user_input(self, input_data: Dict[str, Any]) -> str:
+        question = input_data.get('question', input_data.get('query', ''))
+        context = input_data.get('context') or {}
+        parts = []
+
+        anchor = context.get('session_anchor') or ""
+        if anchor:
+            parts.append(f"【本会话已知信息】{anchor}")
+            parts.append(
+                "【强制规则】已知信息不空时：禁止「尚未提供症状/请补充症状」；"
+                "追问必须继承上述人群与主诉；就医/护理建议须针对该主诉。"
+            )
+
+        historical_cases = context.get('historical_cases')
+        if historical_cases:
+            case_lines = []
+            for i, case in enumerate(historical_cases[:3], 1):
+                summary = case.get('summary', case) if isinstance(case, dict) else case
+                case_lines.append(f"{i}. {summary}")
+            parts.append(
+                "参考案例（仅供启发，勿当作本会话用户事实）：\n"
+                + "\n".join(case_lines)
+            )
+
+        skip_keys = {'recent_history', 'historical_cases', 'is_followup', 'session_anchor'}
+        other = {k: v for k, v in context.items() if k not in skip_keys and v is not None}
+        if other:
+            parts.append("背景信息：\n" + "\n".join(f"{k}: {v}" for k, v in other.items()))
+
+        if context.get('is_followup') or context.get('recent_history') or anchor:
+            parts.append(
+                "【本轮模式：增量回答】细化追问（含就医/护理等）：一句承接 → 可执行增量 → 就医红线 → 免责至多一次。"
+                "禁止假回忆、整套复述、声称尚未提供症状。"
+            )
+
+        parts.append(f"用户问题：{question}")
+        return "\n".join(parts)
 
     async def post_process_result(
         self,

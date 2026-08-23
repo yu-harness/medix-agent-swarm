@@ -52,11 +52,11 @@ class AutoFixer:
         Returns:
             添加免责声明后的输出
         """
-        if "免责" not in output and "仅供参考" not in output:
-            disclaimer = "\n\n【免责声明】\n以上信息仅供参考，不能替代专业医生的诊断和治疗。如有疑虑，请及时就医。"
-            logger.debug("+ 自动添加免责声明")
-            return output + disclaimer
-        return output
+        if "免责" in output or "仅供参考" in output or "不能替代" in output:
+            return output
+        disclaimer = "\n\n【免责声明】\n以上信息仅供参考，不能替代专业医生的诊断和治疗。如有疑虑，请及时就医。"
+        logger.debug("+ 自动添加免责声明")
+        return output + disclaimer
 
     def fix_high_risk_warning(self, output: str) -> str:
         """

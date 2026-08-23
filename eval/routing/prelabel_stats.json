@@ -1,0 +1,77 @@
+{
+  "n": 200,
+  "mode": {
+    "single": 185,
+    "swarm": 15
+  },
+  "combo": {
+    "research": 50,
+    "consultation": 127,
+    "consultation,diagnostic": 13,
+    "consultation,research": 2,
+    "diagnostic": 8
+  },
+  "rules": {
+    "R_GR_PURE": 50,
+    "R_DK_DEFINE": 21,
+    "R_HC_DEFAULT": 43,
+    "R_DK_DEFAULT": 19,
+    "R_DK_TREAT": 5,
+    "R_SD_DEFAULT": 33,
+    "R_SD_AS_CONSULT": 6,
+    "R_HC_EMERGENCY": 5,
+    "R_HC_TREAT_GUIDE": 2,
+    "R_DK_CLINICAL": 5,
+    "R_SD_MULTI": 7,
+    "R_SD_DIAG_ONLY": 3,
+    "R_SD_EMERGENCY": 1
+  },
+  "by_category": {
+    "health_consult": {
+      "n": 50,
+      "mode": {
+        "single": 43,
+        "swarm": 7
+      },
+      "combo": {
+        "consultation": 43,
+        "consultation,diagnostic": 5,
+        "consultation,research": 2
+      }
+    },
+    "symptom_diagnosis": {
+      "n": 50,
+      "mode": {
+        "single": 42,
+        "swarm": 8
+      },
+      "combo": {
+        "consultation": 39,
+        "consultation,diagnostic": 8,
+        "diagnostic": 3
+      }
+    },
+    "disease_knowledge": {
+      "n": 50,
+      "mode": {
+        "single": 50
+      },
+      "combo": {
+        "consultation": 45,
+        "diagnostic": 5
+      }
+    },
+    "guideline_retrieval": {
+      "n": 50,
+      "mode": {
+        "single": 50
+      },
+      "combo": {
+        "research": 50
+      }
+    }
+  },
+  "seed": 42,
+  "per_category": 50,
+  "aligned_detail": "D:\\md\\AI实习\\project\\居丽叶简历项目7：医疗助手\\medix-agent-swarm\\eval\\results\\agent_eval_detail_full200.jsonl"
+}

@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "run_id": "baseline",
+    "labels": "D:\\md\\AI实习\\project\\居丽叶简历项目7：医疗助手\\medix-agent-swarm\\eval\\routing\\route_labels_200.jsonl",
+    "label_nature": "规则预标，非人工终审",
+    "n_target": 200,
+    "concurrency": 4,
+    "timeout_sec": 45.0,
+    "detail_path": "D:\\md\\AI实习\\project\\居丽叶简历项目7：医疗助手\\medix-agent-swarm\\eval\\results\\route_eval_detail_baseline.jsonl",
+    "route_only": true,
+    "started_at": "2026-08-23T08:53:56.962715+00:00",
+    "finished_at": "2026-08-23T08:55:07.458668+00:00",
+    "elapsed_sec": 70.5
+  },
+  "summary": {
+    "n": 200,
+    "mode_accuracy": 0.875,
+    "combo_exact_match": 0.83,
+    "mode_ok": 175,
+    "combo_ok": 166,
+    "by_category": {
+      "disease_knowledge": {
+        "n": 50,
+        "mode_acc": 0.98,
+        "combo_acc": 0.86,
+        "mode_ok": 49,
+        "combo_ok": 43
+      },
+      "guideline_retrieval": {
+        "n": 50,
+        "mode_acc": 1.0,
+        "combo_acc": 0.96,
+        "mode_ok": 50,
+        "combo_ok": 48
+      },
+      "health_consult": {
+        "n": 50,
+        "mode_acc": 0.9,
+        "combo_acc": 0.88,
+        "mode_ok": 45,
+        "combo_ok": 44
+      },
+      "symptom_diagnosis": {
+        "n": 50,
+        "mode_acc": 0.62,
+        "combo_acc": 0.62,
+        "mode_ok": 31,
+        "combo_ok": 31
+      }
+    },
+    "confusion": {
+      "both_ok": 166,
+      "both_wrong": 25,
+      "combo_only": 9
+    },
+    "pred_mode_dist": {
+      "single": 168,
+      "swarm": 32
+    },
+    "expected_mode_dist": {
+      "single": 185,
+      "swarm": 15
+    },
+    "label_nature": "规则预标，非人工终审"
+  }
+}

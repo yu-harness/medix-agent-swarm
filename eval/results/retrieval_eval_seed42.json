@@ -1,0 +1,56 @@
+{
+  "meta": {
+    "seed": 42,
+    "per_category": 50,
+    "data": "D:\\md\\AI实习\\project\\居丽叶简历项目7：医疗助手\\medix-agent-swarm\\eval\\data\\benchmark_500.jsonl",
+    "started_at": "2026-08-23T09:06:55.878989+00:00",
+    "finished_at": "2026-08-23T09:09:30.474252+00:00",
+    "elapsed_sec": 154.6,
+    "protocol": "emb_cosine_hit_content_vs_gold",
+    "hit_thresh": 0.4,
+    "top_k": 8,
+    "llm_judge": false
+  },
+  "n": 200,
+  "hit_at_1_pct": 98.5,
+  "hit_at_3_pct": 98.5,
+  "hit_at_k_pct": 98.5,
+  "hit_at_1": 197,
+  "hit_at_3": 197,
+  "hit_at_k": 197,
+  "empty_hits": 0,
+  "mean_max_sim": 0.6666,
+  "mean_top1_sim": 0.6279,
+  "by_category": {
+    "health_consult": {
+      "n": 50,
+      "hit_at_1": 100.0,
+      "hit_at_3": 100.0,
+      "hit_at_k": 100.0,
+      "mean_max_sim": 0.649
+    },
+    "symptom_diagnosis": {
+      "n": 50,
+      "hit_at_1": 98.0,
+      "hit_at_3": 98.0,
+      "hit_at_k": 98.0,
+      "mean_max_sim": 0.64
+    },
+    "disease_knowledge": {
+      "n": 50,
+      "hit_at_1": 96.0,
+      "hit_at_3": 96.0,
+      "hit_at_k": 96.0,
+      "mean_max_sim": 0.6024
+    },
+    "guideline_retrieval": {
+      "n": 50,
+      "hit_at_1": 100.0,
+      "hit_at_3": 100.0,
+      "hit_at_k": 100.0,
+      "mean_max_sim": 0.7749
+    }
+  },
+  "thresh": 0.4,
+  "top_k": 8
+}

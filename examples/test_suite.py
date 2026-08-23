@@ -15,6 +15,7 @@ from core.skill_registry import SkillRegistry, SkillParameter
 from core.agent_loop import AgentLoop
 from core.llm_client import LLMResponse, ToolCall
 from constraints import ConstraintValidator
+from constraints.validator import is_constraint_enforce_enabled
 from validation import AutoFixer
 from memory import ShortTermMemory, MemoryEntropyManager
 from swarm import SharedContext, EventType
@@ -156,6 +157,34 @@ class TestConstraintsAndAutoFixer(unittest.TestCase):
         result = self.validator.validate_tool_call("consultation_agent", "search_knowledge")
         self.assertTrue(result.get("valid"))
 
+    def test_tool_call_disallowed_warn_default(self):
+        import os
+        old = os.environ.pop("CONSTRAINT_ENFORCE", None)
+        try:
+            result = self.validator.validate_tool_call("consultation_agent", "deep_research")
+            self.assertFalse(result.get("valid"))
+            self.assertEqual(result.get("severity"), "warning")
+            self.assertIn("请改用", result.get("reason", ""))
+            self.assertFalse(is_constraint_enforce_enabled())
+        finally:
+            if old is not None:
+                os.environ["CONSTRAINT_ENFORCE"] = old
+
+    def test_tool_call_disallowed_enforce(self):
+        import os
+        old = os.environ.get("CONSTRAINT_ENFORCE")
+        os.environ["CONSTRAINT_ENFORCE"] = "1"
+        try:
+            result = self.validator.validate_tool_call("consultation_agent", "deep_research")
+            self.assertFalse(result.get("valid"))
+            self.assertEqual(result.get("severity"), "block")
+            self.assertTrue(is_constraint_enforce_enabled())
+        finally:
+            if old is None:
+                os.environ.pop("CONSTRAINT_ENFORCE", None)
+            else:
+                os.environ["CONSTRAINT_ENFORCE"] = old
+
     def test_missing_disclaimer(self):
         result = self.validator.validate_output("consultation_agent", "高血压需要低盐饮食。")
         self.assertFalse(result.get("valid"))
@@ -279,6 +308,66 @@ class TestAgentLoopMaxToolCalls(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["answer"])
 
 
+class TestAgentLoopConstraintEnforce(unittest.IsolatedAsyncioTestCase):
+    async def test_disallowed_tool_blocked_when_enforce(self):
+        import os
+        old = os.environ.get("CONSTRAINT_ENFORCE")
+        os.environ["CONSTRAINT_ENFORCE"] = "1"
+        try:
+            async def fake_chat_with_tools(messages, tools=None, tool_choice="auto", temperature=0.7):
+                has_tool_result = any(m.get("role") == "tool" for m in messages)
+                if has_tool_result:
+                    return LLMResponse(
+                        content="【回答】建议休息。\n【免责声明】仅供参考。",
+                        tool_calls=[],
+                        finish_reason="stop",
+                    )
+                return LLMResponse(
+                    content=None,
+                    tool_calls=[ToolCall(id="c1", name="deep_research", arguments={"query": "高血压"})],
+                    finish_reason="tool_calls",
+                )
+
+            agent = MagicMock()
+            agent.agent_id = "consultation_agent"
+            agent.config = {"temperature": 0.7}
+            agent.get_system_prompt.return_value = "你是医疗助手"
+            agent.format_user_input.return_value = "高血压怎么办"
+            agent.get_tools_for_llm.return_value = []
+            agent.post_process_result = AsyncMock(side_effect=lambda result, final: result)
+            agent.llm_client = MagicMock()
+            agent.llm_client.chat_with_tools = AsyncMock(side_effect=fake_chat_with_tools)
+            agent.llm_client.create_tool_message = MagicMock(
+                side_effect=lambda tool_call_id, tool_name, result: {
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "name": tool_name,
+                    "content": str(result),
+                }
+            )
+            agent.execute_tool = AsyncMock(return_value={"success": True})
+
+            loop = AgentLoop(max_iterations=5, max_tool_calls=2)
+            result = await loop.run(agent, {"question": "高血压怎么办"}, session_id=None)
+
+            agent.execute_tool.assert_not_called()
+            self.assertIn("answer", result)
+            tool_msgs = [
+                c for c in agent.llm_client.create_tool_message.call_args_list
+            ]
+            self.assertTrue(tool_msgs)
+            blocked_result = tool_msgs[0].kwargs.get("result") or tool_msgs[0][1].get("result")
+            if blocked_result is None:
+                blocked_result = tool_msgs[0].args[2] if len(tool_msgs[0].args) >= 3 else tool_msgs[0].kwargs["result"]
+            self.assertTrue(blocked_result.get("blocked"))
+            self.assertIn("请改用", blocked_result.get("error", ""))
+        finally:
+            if old is None:
+                os.environ.pop("CONSTRAINT_ENFORCE", None)
+            else:
+                os.environ["CONSTRAINT_ENFORCE"] = old
+
+
 class TestSwarmBasics(unittest.TestCase):
     def test_shared_context(self):
         ctx = SharedContext(session_id="suite-ctx-001")
@@ -325,6 +414,7 @@ def _build_suite(api_valid: bool) -> unittest.TestSuite:
     suite.addTests(loader.loadTestsFromTestCase(TestConstraintsAndAutoFixer))
     suite.addTests(loader.loadTestsFromTestCase(TestShortTermMemoryAndEntropy))
     suite.addTests(loader.loadTestsFromTestCase(TestAgentLoopMaxToolCalls))
+    suite.addTests(loader.loadTestsFromTestCase(TestAgentLoopConstraintEnforce))
     suite.addTests(loader.loadTestsFromTestCase(TestSwarmBasics))
     if api_valid:
         class TestE2ELive(unittest.IsolatedAsyncioTestCase):

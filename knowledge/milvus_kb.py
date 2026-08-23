@@ -9,6 +9,7 @@
 参考实现：/Users/saintgeo/Desktop/self-learn/shanglv
 """
 import json
+import os
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from loguru import logger
@@ -63,20 +64,23 @@ class MedicalKnowledgeBase:
         self.db_path = str(target)
         self.collection_name = collection_name
 
-        # 初始化 Embedding 模型（支持本地路径）
-        # 优先检查本地缓存路径
-        local_model_path = Path.home() / ".cache" / "huggingface" / "hub" / "models--BAAI--bge-small-zh-v1.5" / "snapshots"
-
-        if local_model_path.exists():
-            # 找到最新的 snapshot
+        # 初始化 Embedding 模型（支持 HF_HOME / 默认缓存本地路径）
+        roots = []
+        hf_home = os.environ.get("HF_HOME")
+        if hf_home:
+            roots.append(Path(hf_home) / "hub" / "models--BAAI--bge-small-zh-v1.5" / "snapshots")
+        roots.append(Path.home() / ".cache" / "huggingface" / "hub" / "models--BAAI--bge-small-zh-v1.5" / "snapshots")
+        model_path = None
+        for local_model_path in roots:
+            if not local_model_path.exists():
+                continue
             snapshots = sorted(local_model_path.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
             if snapshots:
                 model_path = str(snapshots[0])
-                logger.info(f"Loading embedding model from local cache: {model_path}")
-                self.embedding_model = SentenceTransformer(model_path, device='cpu')
-            else:
-                logger.info(f"Loading embedding model: {embedding_model}")
-                self.embedding_model = SentenceTransformer(embedding_model, device='cpu')
+                break
+        if model_path:
+            logger.info(f"Loading embedding model from local cache: {model_path}")
+            self.embedding_model = SentenceTransformer(model_path, device='cpu')
         else:
             logger.info(f"Loading embedding model: {embedding_model}")
             self.embedding_model = SentenceTransformer(embedding_model, device='cpu')
@@ -84,9 +88,19 @@ class MedicalKnowledgeBase:
         self.embedding_dim = self.embedding_model.get_sentence_embedding_dimension()
         logger.info(f"Embedding model loaded (dimension={self.embedding_dim})")
 
-        # 初始化 Milvus Lite
+        # 初始化 Milvus Lite（调大 keepalive，避免默认 10s ping 触发 too_many_pings）
         logger.info(f"Connecting to Milvus Lite: {self.db_path}")
-        self.milvus_client = MilvusClient(uri=self.db_path, db_name="default")
+        # pymilvus 默认 keepalive=10s，Milvus Lite/gRPC 服务端会 GOAWAY too_many_pings
+        os.environ.setdefault("GRPC_VERBOSITY", "ERROR")
+        self.milvus_client = MilvusClient(
+            uri=self.db_path,
+            db_name="default",
+            grpc_options={
+                "grpc.keepalive_time_ms": 300000,
+                "grpc.keepalive_timeout_ms": 20000,
+                "grpc.keepalive_permit_without_calls": False,
+            },
+        )
 
         # 创建 collection（如果不存在）
         if not self.milvus_client.has_collection(collection_name):
@@ -309,9 +323,10 @@ class MedicalKnowledgeBase:
     def search(
         self,
         query: str,
-        top_k: int = 5,
+        top_k: int = 8,
         filter_type: Optional[str] = None,
         use_hybrid: bool = True,
+        min_vector_score: float = 0.25,
     ) -> List[Dict[str, Any]]:
         """
         检索相关文档
@@ -321,6 +336,7 @@ class MedicalKnowledgeBase:
             top_k: 返回top K个结果
             filter_type: 可选的类型过滤（如 "lifestyle", "disease_classification"）
             use_hybrid: 是否使用混合检索（向量 + BM25 + RRF 融合）
+            min_vector_score: 向量相似度下限（过低则丢弃噪声命中）
 
         Returns:
             文档列表，每个文档包含 id, content, metadata, score
@@ -381,7 +397,12 @@ class MedicalKnowledgeBase:
                 except Exception as e:
                     logger.warning(f"Failed to parse result: {e}")
                     continue
-        vector_ranked = list(vector_docs.values())[: top_k * 2]
+        vector_ranked = [
+            d for d in vector_docs.values() if d.get("score", 0) >= min_vector_score
+        ]
+        vector_ranked = sorted(
+            vector_ranked, key=lambda d: d.get("score", 0), reverse=True
+        )[: top_k * 2]
 
         # 若关闭混合检索或没有 BM25，直接返回向量结果
         if not use_hybrid or not _HAS_BM25:

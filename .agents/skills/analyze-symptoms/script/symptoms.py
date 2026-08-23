@@ -111,7 +111,7 @@ async def analyze_symptoms(symptoms: str) -> Dict[str, Any]:
                     top_k=1,
                     filter_type=None
                 )
-                if results and results[0]["score"] > 0.5:
+                if results and results[0]["score"] > 0.35:
                     kb_insights.append({
                         "disease": disease,
                         "info": results[0]["content"][:200]  # 限制长度

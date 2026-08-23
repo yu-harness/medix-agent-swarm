@@ -1,0 +1,111 @@
+{
+  "meta": {
+    "seed": 42,
+    "per_category": 50,
+    "n_target": 200,
+    "semaphore": 2,
+    "timeout_sec": 120.0,
+    "data": "D:\\md\\AI实习\\project\\居丽叶简历项目7：医疗助手\\medix-agent-swarm\\eval\\data\\benchmark_500.jsonl",
+    "detail_path": "D:\\md\\AI实习\\project\\居丽叶简历项目7：医疗助手\\medix-agent-swarm\\eval\\results\\agent_eval_detail_post_opt.jsonl",
+    "emb_high": 0.75,
+    "emb_low": 0.4,
+    "reuse_coordinator": true,
+    "started_at": "2026-08-23T07:41:25.491130+00:00",
+    "finished_at": "2026-08-23T08:15:00.790826+00:00",
+    "elapsed_sec": 2015.3
+  },
+  "summary": {
+    "n": 200,
+    "correct": 182,
+    "partial": 7,
+    "exact_accuracy": 0.91,
+    "partial_rate": 0.035,
+    "latency": {
+      "mean": 30.985,
+      "p50": 26.664,
+      "p95": 61.622,
+      "n": 200
+    },
+    "by_category": {
+      "health_consult": {
+        "n": 50,
+        "correct": 48,
+        "partial": 1,
+        "exact_accuracy": 0.96,
+        "partial_rate": 0.02
+      },
+      "symptom_diagnosis": {
+        "n": 50,
+        "correct": 41,
+        "partial": 4,
+        "exact_accuracy": 0.82,
+        "partial_rate": 0.08
+      },
+      "disease_knowledge": {
+        "n": 50,
+        "correct": 44,
+        "partial": 2,
+        "exact_accuracy": 0.88,
+        "partial_rate": 0.04
+      },
+      "guideline_retrieval": {
+        "n": 50,
+        "correct": 49,
+        "partial": 0,
+        "exact_accuracy": 0.98,
+        "partial_rate": 0.0
+      }
+    },
+    "error_top": [
+      [
+        "skipped_due_to_low_embedding",
+        2
+      ],
+      [
+        "标准答案推荐中药产品，系统回答仅谈按摩方法，未覆盖产品推荐这一核心结论方向。",
+        1
+      ],
+      [
+        "标准答案认为醋有一定作用，系统回答明确否定且称不能软化血管，核心结论方向矛盾。",
+        1
+      ],
+      [
+        "标准答案明确脂肪肝属于化学性肝损伤，系统回答否定该结论，核心医学结论矛盾。",
+        1
+      ],
+      [
+        "系统回答给出辨证分型建议，但未明确肯定经期可服用，与金标结论方向有差异。",
+        1
+      ],
+      [
+        "系统回答未提及马槟榔为山柑科植物及中国特有植物等核心植物学信息，仅提供中药知识，遗漏关键要点。",
+        1
+      ],
+      [
+        "遗漏了标准答案中口服抗过敏药和外用无极膏的具体治疗建议，仅作保湿和就医指引，核心处理方向覆盖不全。",
+        1
+      ],
+      [
+        "系统回答未覆盖标准答案核心结论（白斑即白癜风及综合治疗），主推白塞病鉴别，方向偏离。",
+        1
+      ],
+      [
+        "系统回答主要围绕反流/喂养问题，未覆盖金标核心结论肺炎及抗感染治疗方向。",
+        1
+      ],
+      [
+        "金标核心为毛囊炎及抗感染处理，系统主判荨麻疹且未提及毛囊炎方向，结论分型偏倚。",
+        1
+      ]
+    ],
+    "verdict_counts": {
+      "correct": 182,
+      "incorrect": 11,
+      "partial": 7
+    },
+    "mode_counts": {
+      "single_agent": 117,
+      "swarm": 83
+    }
+  }
+}

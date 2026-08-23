@@ -66,6 +66,19 @@ class LongTermMemory:
             logger.warning("Mem0 not available. Long-term memory disabled.")
             return
 
+        # MEM0_ENABLED=0/false/off 或 config enabled=False 时跳过（默认仍尝试连接）
+        env_enabled = os.getenv("MEM0_ENABLED", "1").strip().lower()
+        cfg_enabled = True
+        if config and "enabled" in config:
+            cfg_enabled = bool(config["enabled"])
+        elif MEM0_CONFIG and "enabled" in MEM0_CONFIG:
+            cfg_enabled = bool(MEM0_CONFIG["enabled"])
+        if env_enabled in ("0", "false", "off", "no") or not cfg_enabled:
+            self.enabled = False
+            self.mem0 = None
+            logger.info("Mem0 skipped (MEM0_ENABLED off). Long-term memory disabled.")
+            return
+
         self.enabled = True
 
         # Harness Engineering: 熵管理器
@@ -87,18 +100,42 @@ class LongTermMemory:
             else:
                 mem0_api_key = os.getenv("MEM0_API_KEY")
 
-            if not mem0_api_key:
-                raise ValueError("MEM0_API_KEY not found. Set it in /Users/saintgeo/Desktop/self-learn/swarm/config.py")
+            if not mem0_api_key or not str(mem0_api_key).strip() or str(mem0_api_key).startswith("m0-your-"):
+                self.enabled = False
+                self.mem0 = None
+                logger.info("Mem0 api_key empty/placeholder. Long-term memory disabled.")
+                return
 
-            # 初始化 Mem0 云服务客户端
-            self.mem0 = MemoryClient(api_key=mem0_api_key)
-            logger.info("LongTermMemory initialized with Mem0 cloud service")
+            # 初始化 Mem0 云服务客户端（最多重试 2 次，应对偶发 SSL/网络中断）
+            last_err = None
+            for attempt in range(3):
+                try:
+                    self.mem0 = MemoryClient(api_key=mem0_api_key)
+                    logger.info("LongTermMemory initialized with Mem0 cloud service")
+                    last_err = None
+                    break
+                except Exception as e:
+                    last_err = e
+                    err_s = str(e)
+                    if "UNEXPECTED_EOF" in err_s or "SSL" in err_s or "Connection" in err_s:
+                        if attempt < 2:
+                            logger.debug(f"Mem0 connect retry {attempt + 1}/3: network/SSL")
+                            continue
+                    raise
+            if last_err is not None:
+                raise last_err
 
         except Exception as e:
-            logger.warning(f"Failed to initialize Mem0: {e}")
-            logger.warning("Long-term memory disabled. System will work without Mem0.")
-            logger.info("To enable Mem0: set MEM0_API_KEY in /Users/saintgeo/Desktop/self-learn/swarm/config.py")
+            err_s = str(e)
+            if "UNEXPECTED_EOF" in err_s or "SSL" in err_s:
+                logger.warning(
+                    "Mem0 SSL/network failed (UNEXPECTED_EOF/SSL). "
+                    "Set HTTPS_PROXY or $env:MEM0_ENABLED='0' to skip. Long-term memory disabled."
+                )
+            else:
+                logger.warning(f"Failed to initialize Mem0: {type(e).__name__}. Long-term memory disabled.")
             self.enabled = False
+            self.mem0 = None
 
     def add_session_summary(
         self,

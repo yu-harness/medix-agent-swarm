@@ -1,0 +1,314 @@
+{
+  "finished_at": "2026-08-23T09:06:06.285104+00:00",
+  "n_cases": 8,
+  "cases": [
+    {
+      "agent_id": "consultation_agent",
+      "tool": "deep_research"
+    },
+    {
+      "agent_id": "consultation_agent",
+      "tool": "clinical_guideline"
+    },
+    {
+      "agent_id": "consultation_agent",
+      "tool": "analyze_symptoms"
+    },
+    {
+      "agent_id": "consultation_agent",
+      "tool": "disease_code"
+    },
+    {
+      "agent_id": "diagnostic_agent",
+      "tool": "recommend_lifestyle"
+    },
+    {
+      "agent_id": "diagnostic_agent",
+      "tool": "deep_research"
+    },
+    {
+      "agent_id": "research_agent",
+      "tool": "assess_risk"
+    },
+    {
+      "agent_id": "research_agent",
+      "tool": "analyze_symptoms"
+    }
+  ],
+  "warn": {
+    "executed_overreach": 8,
+    "blocked": 0,
+    "unknown": 0
+  },
+  "enforce": {
+    "executed_overreach": 0,
+    "blocked": 8,
+    "unknown": 0
+  },
+  "details_warn": [
+    {
+      "agent_id": "consultation_agent",
+      "tool": "deep_research",
+      "enforce": false,
+      "executed": true,
+      "blocked": false,
+      "outcome": "executed_overreach"
+    },
+    {
+      "agent_id": "consultation_agent",
+      "tool": "clinical_guideline",
+      "enforce": false,
+      "executed": true,
+      "blocked": false,
+      "outcome": "executed_overreach"
+    },
+    {
+      "agent_id": "consultation_agent",
+      "tool": "analyze_symptoms",
+      "enforce": false,
+      "executed": true,
+      "blocked": false,
+      "outcome": "executed_overreach"
+    },
+    {
+      "agent_id": "consultation_agent",
+      "tool": "disease_code",
+      "enforce": false,
+      "executed": true,
+      "blocked": false,
+      "outcome": "executed_overreach"
+    },
+    {
+      "agent_id": "diagnostic_agent",
+      "tool": "recommend_lifestyle",
+      "enforce": false,
+      "executed": true,
+      "blocked": false,
+      "outcome": "executed_overreach"
+    },
+    {
+      "agent_id": "diagnostic_agent",
+      "tool": "deep_research",
+      "enforce": false,
+      "executed": true,
+      "blocked": false,
+      "outcome": "executed_overreach"
+    },
+    {
+      "agent_id": "research_agent",
+      "tool": "assess_risk",
+      "enforce": false,
+      "executed": true,
+      "blocked": false,
+      "outcome": "executed_overreach"
+    },
+    {
+      "agent_id": "research_agent",
+      "tool": "analyze_symptoms",
+      "enforce": false,
+      "executed": true,
+      "blocked": false,
+      "outcome": "executed_overreach"
+    }
+  ],
+  "details_enforce": [
+    {
+      "agent_id": "consultation_agent",
+      "tool": "deep_research",
+      "enforce": true,
+      "executed": false,
+      "blocked": true,
+      "outcome": "blocked"
+    },
+    {
+      "agent_id": "consultation_agent",
+      "tool": "clinical_guideline",
+      "enforce": true,
+      "executed": false,
+      "blocked": true,
+      "outcome": "blocked"
+    },
+    {
+      "agent_id": "consultation_agent",
+      "tool": "analyze_symptoms",
+      "enforce": true,
+      "executed": false,
+      "blocked": true,
+      "outcome": "blocked"
+    },
+    {
+      "agent_id": "consultation_agent",
+      "tool": "disease_code",
+      "enforce": true,
+      "executed": false,
+      "blocked": true,
+      "outcome": "blocked"
+    },
+    {
+      "agent_id": "diagnostic_agent",
+      "tool": "recommend_lifestyle",
+      "enforce": true,
+      "executed": false,
+      "blocked": true,
+      "outcome": "blocked"
+    },
+    {
+      "agent_id": "diagnostic_agent",
+      "tool": "deep_research",
+      "enforce": true,
+      "executed": false,
+      "blocked": true,
+      "outcome": "blocked"
+    },
+    {
+      "agent_id": "research_agent",
+      "tool": "assess_risk",
+      "enforce": true,
+      "executed": false,
+      "blocked": true,
+      "outcome": "blocked"
+    },
+    {
+      "agent_id": "research_agent",
+      "tool": "analyze_symptoms",
+      "enforce": true,
+      "executed": false,
+      "blocked": true,
+      "outcome": "blocked"
+    }
+  ],
+  "validator": {
+    "warn_warning": 8,
+    "enforce_block": 8,
+    "rows": [
+      {
+        "agent_id": "consultation_agent",
+        "tool": "deep_research",
+        "enforce": false,
+        "valid": false,
+        "severity": "warning",
+        "env_enforce": false
+      },
+      {
+        "agent_id": "consultation_agent",
+        "tool": "clinical_guideline",
+        "enforce": false,
+        "valid": false,
+        "severity": "warning",
+        "env_enforce": false
+      },
+      {
+        "agent_id": "consultation_agent",
+        "tool": "analyze_symptoms",
+        "enforce": false,
+        "valid": false,
+        "severity": "warning",
+        "env_enforce": false
+      },
+      {
+        "agent_id": "consultation_agent",
+        "tool": "disease_code",
+        "enforce": false,
+        "valid": false,
+        "severity": "warning",
+        "env_enforce": false
+      },
+      {
+        "agent_id": "diagnostic_agent",
+        "tool": "recommend_lifestyle",
+        "enforce": false,
+        "valid": false,
+        "severity": "warning",
+        "env_enforce": false
+      },
+      {
+        "agent_id": "diagnostic_agent",
+        "tool": "deep_research",
+        "enforce": false,
+        "valid": false,
+        "severity": "warning",
+        "env_enforce": false
+      },
+      {
+        "agent_id": "research_agent",
+        "tool": "assess_risk",
+        "enforce": false,
+        "valid": false,
+        "severity": "warning",
+        "env_enforce": false
+      },
+      {
+        "agent_id": "research_agent",
+        "tool": "analyze_symptoms",
+        "enforce": false,
+        "valid": false,
+        "severity": "warning",
+        "env_enforce": false
+      },
+      {
+        "agent_id": "consultation_agent",
+        "tool": "deep_research",
+        "enforce": true,
+        "valid": false,
+        "severity": "block",
+        "env_enforce": true
+      },
+      {
+        "agent_id": "consultation_agent",
+        "tool": "clinical_guideline",
+        "enforce": true,
+        "valid": false,
+        "severity": "block",
+        "env_enforce": true
+      },
+      {
+        "agent_id": "consultation_agent",
+        "tool": "analyze_symptoms",
+        "enforce": true,
+        "valid": false,
+        "severity": "block",
+        "env_enforce": true
+      },
+      {
+        "agent_id": "consultation_agent",
+        "tool": "disease_code",
+        "enforce": true,
+        "valid": false,
+        "severity": "block",
+        "env_enforce": true
+      },
+      {
+        "agent_id": "diagnostic_agent",
+        "tool": "recommend_lifestyle",
+        "enforce": true,
+        "valid": false,
+        "severity": "block",
+        "env_enforce": true
+      },
+      {
+        "agent_id": "diagnostic_agent",
+        "tool": "deep_research",
+        "enforce": true,
+        "valid": false,
+        "severity": "block",
+        "env_enforce": true
+      },
+      {
+        "agent_id": "research_agent",
+        "tool": "assess_risk",
+        "enforce": true,
+        "valid": false,
+        "severity": "block",
+        "env_enforce": true
+      },
+      {
+        "agent_id": "research_agent",
+        "tool": "analyze_symptoms",
+        "enforce": true,
+        "valid": false,
+        "severity": "block",
+        "env_enforce": true
+      }
+    ]
+  }
+}

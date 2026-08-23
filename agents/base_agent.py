@@ -85,13 +85,22 @@ class BaseAgent(ABC):
         Returns:
             格式化后的用户消息
         """
-        # 默认实现
-        if 'question' in input_data:
-            return input_data['question']
-        elif 'query' in input_data:
-            return input_data['query']
-        else:
-            return str(input_data)
+        question = input_data.get('question') or input_data.get('query') or str(input_data)
+        context = input_data.get('context') or {}
+        parts = []
+        anchor = context.get('session_anchor') or ""
+        if anchor:
+            parts.append(f"【本会话已知信息】{anchor}")
+            parts.append(
+                "【强制规则】已知信息不空时：禁止「尚未提供症状/请补充症状」；"
+                "追问必须继承上述人群与主诉；就医/护理建议须针对该主诉，勿换成无关成人通用病建议。"
+            )
+        if context.get('is_followup') or context.get('recent_history') or anchor:
+            parts.append(
+                "【本轮模式：增量回答】承接已知主诉 → 本轮就医/护理等增量 → 就医红线 → 免责至多一次。"
+            )
+        parts.append(f"用户问题：{question}")
+        return "\n".join(parts)
 
     async def post_process_result(
         self,
@@ -149,13 +158,29 @@ class BaseAgent(ABC):
         处理子任务（Swarm 模式）
 
         子类可以重写以实现自定义逻辑
-        默认实现：运行 Agent Loop
+        默认实现：运行 Agent Loop，并注入 session_id / 会话锚点
         """
-        # 使用 subtask.description 作为输入
+        ctx: Dict[str, Any] = {}
+        session_id = None
+        user_question = ""
+        if self.shared_context is not None:
+            session_id = getattr(self.shared_context, "session_id", None)
+            ctx = dict(self.shared_context.get_data("user_context") or {})
+            user_question = self.shared_context.get_data("user_question") or ""
+
+        question = subtask.description
+        if user_question:
+            question = f"用户本轮问题：{user_question}\n任务：{subtask.description}"
+
         input_data = {
-            'question': subtask.description,
+            'question': question,
+            'context': ctx,
+            # 不写回 session，避免 Worker 工具消息淹没用户主诉；锚点已在 context
+            'session_id': session_id,
+            'record_memory': False,
+            'load_history': False,
             'subtask_id': subtask.id,
-            'subtask_type': subtask.type
+            'subtask_type': subtask.type,
         }
 
         return await self.run_loop(input_data)

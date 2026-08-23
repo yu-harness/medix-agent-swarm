@@ -1,0 +1,70 @@
+{
+  "seed": 42,
+  "per_category": 6,
+  "n": 24,
+  "n_ok": 24,
+  "timeout_sec": 120.0,
+  "finished_at": "2026-08-23T09:18:47.933174+00:00",
+  "stages": {
+    "total": {
+      "n": 24,
+      "mean": 20.77,
+      "p50": 14.291,
+      "p95": 41.388
+    },
+    "route_decompose": {
+      "n": 24,
+      "mean": 1.455,
+      "p50": 1.421,
+      "p95": 2.077
+    },
+    "agent_process": {
+      "n": 24,
+      "mean": 12.82,
+      "p50": 10.702,
+      "p95": 37.474
+    },
+    "retrieval": {
+      "n": 24,
+      "mean": 1.139,
+      "p50": 0.593,
+      "p95": 3.231
+    },
+    "main_llm_approx": {
+      "n": 24,
+      "mean": 12.125,
+      "p50": 9.857,
+      "p95": 34.589
+    },
+    "synthesize": {
+      "n": 24,
+      "mean": 1.803,
+      "p50": 0.0,
+      "p95": 11.127
+    },
+    "other": {
+      "n": 24,
+      "mean": 4.692,
+      "p50": 1.319,
+      "p95": 21.398
+    }
+  },
+  "by_category": {
+    "health_consult": {
+      "n": 6,
+      "mean_total": 19.453
+    },
+    "symptom_diagnosis": {
+      "n": 6,
+      "mean_total": 24.409
+    },
+    "disease_knowledge": {
+      "n": 6,
+      "mean_total": 13.468
+    },
+    "guideline_retrieval": {
+      "n": 6,
+      "mean_total": 25.752
+    }
+  }
+}

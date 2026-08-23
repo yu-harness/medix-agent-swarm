@@ -7,10 +7,25 @@
 - 运行时验证
 - 自动修复（可选）
 """
+import os
 from typing import Dict, Any, List, Optional
 import yaml
 from pathlib import Path
 from loguru import logger
+
+
+def is_constraint_enforce_enabled() -> bool:
+    """CONSTRAINT_ENFORCE 环境变量优先，其次 config.CONSTRAINT_ENFORCE，默认 False（warn）。"""
+    env = os.getenv("CONSTRAINT_ENFORCE", "").strip().lower()
+    if env in ("1", "true", "yes", "on"):
+        return True
+    if env in ("0", "false", "no", "off"):
+        return False
+    try:
+        from config import CONSTRAINT_ENFORCE  # type: ignore
+        return bool(CONSTRAINT_ENFORCE)
+    except Exception:
+        return False
 
 
 class ConstraintValidator:
@@ -40,6 +55,10 @@ class ConstraintValidator:
 
         logger.info("✅ ConstraintValidator initialized")
 
+    def get_allowed_tools(self, agent_id: str) -> List[str]:
+        agent_constraints = self.agent_constraints.get('agents', {}).get(agent_id, {})
+        return list(agent_constraints.get('allowed_tools', []) or [])
+
     def validate_tool_call(self, agent_id: str, tool_name: str) -> Dict[str, Any]:
         """
         验证工具调用是否允许
@@ -51,27 +70,33 @@ class ConstraintValidator:
         Returns:
             {
                 "valid": bool,
-                "reason": str (如果不允许)
+                "reason": str (如果不允许),
+                "allowed_tools": List[str],
+                "severity": "warning" | "block"
             }
         """
-        agent_constraints = self.agent_constraints['agents'].get(agent_id, {})
-        allowed_tools = agent_constraints.get('allowed_tools', [])
+        allowed_tools = self.get_allowed_tools(agent_id)
 
         # 如果 allowed_tools 为空，表示没有限制
         if not allowed_tools:
-            return {"valid": True}
+            return {"valid": True, "allowed_tools": []}
 
         # 检查工具是否在允许列表中
         if tool_name not in allowed_tools:
-            reason = f"工具 {tool_name} 不在 {agent_id} 的推荐工具列表中"
-            logger.warning(f"⚠️ {reason}")
+            enforce = is_constraint_enforce_enabled()
+            severity = "block" if enforce else "warning"
+            reason = (
+                f"该 Skill「{tool_name}」不被当前 Agent「{agent_id}」允许，"
+                f"请改用：{', '.join(allowed_tools)}"
+            )
             return {
                 "valid": False,
                 "reason": reason,
-                "severity": "warning"  # 警告级别（不阻止执行，只记录）
+                "allowed_tools": allowed_tools,
+                "severity": severity,
             }
 
-        return {"valid": True}
+        return {"valid": True, "allowed_tools": allowed_tools}
 
     def validate_output(self, agent_id: str, output: str) -> Dict[str, Any]:
         """

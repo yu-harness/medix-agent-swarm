@@ -1,0 +1,44 @@
+{
+  "meta": {
+    "data": "D:\\md\\AI实习\\project\\居丽叶简历项目7：医疗助手\\medix-agent-swarm\\eval\\data\\multiturn_50.jsonl",
+    "n_target": 50,
+    "concurrency": 2,
+    "timeout_sec": 120.0,
+    "path": "process_with_swarm / SwarmCoordinator.process 同 session 两轮",
+    "started_at": "2026-08-23T09:33:07.063499+00:00",
+    "finished_at": "2026-08-23T09:52:31.562139+00:00",
+    "elapsed_sec": 1164.5
+  },
+  "summary": {
+    "n": 50,
+    "coref_correct": 44,
+    "coref_accuracy": 0.88,
+    "by_category": {
+      "disease_knowledge": {
+        "n": 12,
+        "correct": 12,
+        "acc": 1.0
+      },
+      "guideline_retrieval": {
+        "n": 11,
+        "correct": 11,
+        "acc": 1.0
+      },
+      "health_consult": {
+        "n": 14,
+        "correct": 12,
+        "acc": 0.8571
+      },
+      "symptom_diagnosis": {
+        "n": 13,
+        "correct": 9,
+        "acc": 0.6923
+      }
+    },
+    "verdict_counts": {
+      "correct": 44,
+      "incorrect": 6
+    },
+    "error_counts": {}
+  }
+}

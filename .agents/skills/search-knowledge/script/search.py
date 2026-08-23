@@ -18,13 +18,13 @@ def get_knowledge_base():
     return _kb_instance
 
 
-async def search_knowledge(query: str, max_results: int = 5) -> Dict[str, Any]:
+async def search_knowledge(query: str, max_results: int = 8) -> Dict[str, Any]:
     """
     搜索医学知识库
 
     Args:
         query: 查询内容
-        max_results: 最多返回结果数（默认5）
+        max_results: 最多返回结果数（默认8，提高咨询/症状召回覆盖）
 
     Returns:
         {

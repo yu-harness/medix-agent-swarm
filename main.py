@@ -110,20 +110,27 @@ async def interactive_mode():
             # 打印执行时间
             print(f"⏱️  执行时间：{execution_time:.2f} 秒")
 
-            # 显示回答
+            answer = result.get('answer') or ''
             print("\n📋 回答：")
             print("-" * 60)
-            print(result['answer'])
+            print(answer)
             print("-" * 60)
 
-            # 显示建议（如果有）
-            if result.get('suggestions'):
+            answer_has_suggestions = '【核心建议】' in answer
+            answer_has_disclaimer = (
+                '【免责声明】' in answer
+                or '仅供参考' in answer
+                or '不能替代' in answer
+            )
+
+            if result.get('suggestions') and not answer_has_suggestions:
                 print(f"\n💡 核心建议 ({len(result['suggestions'])}条)：")
                 for i, suggestion in enumerate(result['suggestions'], 1):
                     print(f"  {i}. {suggestion}")
 
-            # 显示免责声明
-            print(f"\n{result['disclaimer']}")
+            disclaimer = result.get('disclaimer')
+            if disclaimer and not answer_has_disclaimer:
+                print(f"\n{disclaimer}")
             print("\n" + "=" * 60 + "\n")
 
         except KeyboardInterrupt:

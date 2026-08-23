@@ -1,0 +1,16 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env.example
+    environment:
+      HF_HOME: /app/.cache/huggingface
+    volumes:
+      - ./knowledge/data:/app/knowledge/data
+      - hf_cache:/app/.cache/huggingface
+    # 上云前请复制 .env.example -> .env 并填密钥；生产可用 env_file: .env
+
+volumes:
+  hf_cache:

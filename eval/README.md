@@ -1,90 +1,63 @@
-# medix-agent-swarm 文本医疗评测集
+# 评测
 
-全中文、仅文本。共 **500** 条，四类各 **125** 条。私有完整集默认不入库；公开仓库仅保留样例。
+全中文文本集 **500** 条，四类各 **125**。完整集默认不入库；公开样例可提交。
 
-## 文件
+性能测试总览：[docs/perf_eval_overview.md](docs/perf_eval_overview.md)  
+质量优化（exact 29%→91%）：[docs/quality_optimization_29_to_91.md](docs/quality_optimization_29_to_91.md)  
+多轮上下文丢失 Bad Case：[docs/badcase_multiturn_context_loss.md](docs/badcase_multiturn_context_loss.md)  
+路由基线（规则预标非人工终审：模式 87.5% / 组合 83.0%；**人工抽审待用户**）：[results/route_eval_baseline.md](results/route_eval_baseline.md)  
+纯检索（hit@8 98.5%，n=200）：[results/retrieval_eval_seed42.md](results/retrieval_eval_seed42.md)  
+分阶段耗时（n=24）：[results/latency_breakdown_n24.md](results/latency_breakdown_n24.md)  
+约束 warn vs enforce：[results/constraint_enforce_compare.md](results/constraint_enforce_compare.md)  
+并发吞吐（n=30,c=3）：[results/throughput_eval.md](results/throughput_eval.md)  
+路由标注：[routing/README.md](routing/README.md)  
+后续指标：[../docs/ROADMAP.md](../docs/ROADMAP.md)
 
-| 路径 | 说明 | Git |
-|------|------|-----|
-| `data/benchmark_500.jsonl` | 私有完整评测集（500） | 忽略 |
-| `data/benchmark_samples.jsonl` | 公开样例（每类 8，共 32） | 提交 |
-| `data/benchmark_build_meta.json` | 构建指纹与条数元数据 | 忽略 |
-| `raw/` | 原始下载数据 | 忽略 |
-| `scripts/build_benchmark_500.py` | 复现构建脚本 | 提交 |
+## 数据
 
-## 字段
+| 路径 | 说明 |
+|------|------|
+| `data/benchmark_500.jsonl` | 完整集（gitignore） |
+| `data/benchmark_samples.jsonl` | 公开样例（每类 8） |
+| `scripts/build_benchmark_500.py` | 复现构建 |
+| `results/` | 评测 summary / detail（保留产物，勿当百科改） |
 
-每行一条 JSON：
+字段：`id`、`question`、`answer`、`category`（`health_consult` / `symptom_diagnosis` / `disease_knowledge` / `guideline_retrieval`）、`source`、`source_id`、`notes`。
 
-- `id`：如 `health_consult_001`
-- `question` / `answer`：中文问答
-- `category`：仅允许下列 slug
-  - `health_consult` 日常健康咨询
-  - `symptom_diagnosis` 症状诊断分析
-  - `disease_knowledge` 疾病知识查询
-  - `guideline_retrieval` 权威指南/知识文档检索
-- `source`：数据来源名或本地文档路径
-- `source_id`：源内标识
-- `notes`：截断、文档抽问答等备注
-
-## 采用的公开数据源（已核实可下载）
-
-| 数据集 | URL | 许可/用途 | 适配类别 | 本机下载方式 |
-|--------|-----|-----------|----------|--------------|
-| **cMedQA2** | https://github.com/zhangsheng93/cMedQA2 | 非商业研究；仓库标 GPL-3.0 | health_consult / symptom_diagnosis | `question.zip` + `answer.zip` + `train_candidates.zip` |
-| **webMedQA** | https://github.com/hejunqing/webMedQA | Apache-2.0 | 同上 | `valid.zip` / `test.zip`（取 label=1 正答） |
-| **Chinese-medical-dialogue-data** | https://github.com/Toyhom/Chinese-medical-dialogue-data | MIT | 同上 | 样例 CSV `样例_内科5000-6000.csv`（GBK） |
-| **shibing624/medical** | https://huggingface.co/datasets/shibing624/medical | Apache-2.0 | 咨询/症状/知识 | `finetune/test_zh_0.json`、`valid_zh_0.json` |
-| **huatuo_encyclopedia_qa** | https://huggingface.co/datasets/FreedomIntelligence/huatuo_encyclopedia_qa | 见 HF 卡片（华佗百科 QA） | disease_knowledge | HuggingFace datasets-server 抽样 |
-| **本地知识文档** | `../knowledge/data/documents/` | 项目内 | guideline_retrieval（不足时用文档片段补齐） | 直接读 txt |
-
-调研中核对但**未整库纳入最终 500** 的源：
-
-- 丁香/春雨等商业站点对话：许可不清晰，未直接抓取。
-- Toyhom 全量科室 CSV：体积大；本构建用公开样例 CSV 即可满足配额。
-
-## 最终条数（按类）
-
-| category | 条数 |
-|----------|------|
-| health_consult | 125 |
-| symptom_diagnosis | 125 |
-| disease_knowledge | 125 |
-| guideline_retrieval | 125 |
-| **合计** | **500** |
-
-指南类：优先 `20_guideline_hypertension.txt`、`21_guideline_diabetes.txt`；不足部分由同目录其他知识文档抽「问原文 / 答片段」补齐（`notes` 含 `generated_from_local_doc_span`）。
-
-## 本地查看 / 抽样
+主要来源：cMedQA2、webMedQA、Chinese-medical-dialogue-data、shibing624/medical、huatuo_encyclopedia_qa、本地 `knowledge/data/documents/`（指南类）。许可与局限：完整集勿公开分发；类别为启发式映射；答案非临床终审。
 
 ```powershell
-cd medix-agent-swarm\eval
-
-# 条数与类别统计
-python -c "import json; from collections import Counter; from pathlib import Path; rows=[json.loads(l) for l in Path('data/benchmark_500.jsonl').read_text(encoding='utf-8').splitlines() if l.strip()]; print(len(rows), Counter(r['category'] for r in rows))"
-
-# 看公开样例
-Get-Content .\data\benchmark_samples.jsonl -TotalCount 5 -Encoding utf8
-
-# 随机抽 3 条完整集
-python -c "import json,random; from pathlib import Path; rows=[json.loads(l) for l in Path('data/benchmark_500.jsonl').read_text(encoding='utf-8').splitlines() if l.strip()]; random.seed(42); [print(json.dumps(r,ensure_ascii=False)[:300]) for r in random.sample(rows,3)]"
-```
-
-## 复现构建
-
-```powershell
-cd medix-agent-swarm\eval
-# 1) 将公开集下载到 raw\（脚本假设目录结构已存在；可用 raw 内现有文件）
-# 2) 构建
+cd eval
 python .\scripts\build_benchmark_500.py
 ```
 
-脚本会：筛选非空问答、按规则映射四类、question 近似去重、答案截断至约 800 字（`notes` 标明）、按来源配额取样、写出 `benchmark_500.jsonl` 与 `benchmark_samples.jsonl`。
+## 跑 Agent 评测
 
-## 已知局限
+需已配置 `config.py`、知识库已导入。
 
-1. **许可**：cMedQA2 明确非商业研究；完整集请勿公开分发，仅样例入库。
-2. **指南类**：中文临床指南整库公开可下载且可自由再分发的 QA 很少；本集以项目内指南/知识文档抽问答为主，答案为原文片段，便于核对，但覆盖病种有限（高血压、糖尿病为主）。
-3. **类别映射**：公开对话/社区 QA 靠关键词启发式归类，边界题可能存在交叉。
-4. **医学正确性**：标准答案来自公开集或文档片段，未做临床专家二次标注；不可当诊疗依据。
-5. **无评测脚本 / 无图像**：本目录只提供文本评测数据。
+```powershell
+cd medix-agent-swarm
+# 冒烟
+python eval/scripts/run_agent_eval.py --per-category 50 --limit 4 --run-id smoke
+# 正式分层 200（四类各 50，seed=42）
+python eval/scripts/run_agent_eval.py --seed 42 --per-category 50 --run-id post_opt
+# 续跑
+python eval/scripts/run_agent_eval.py --resume --resume-detail eval/results/agent_eval_detail_<run>.jsonl
+```
+
+常用参数：`--data`、`--out-dir`、`--semaphore`、`--timeout`、`--categories`。
+
+产物：`eval/results/agent_eval_summary_*.md`、`agent_eval_detail_*.jsonl`；最新可看 `latest_summary.md`。对照报告：`agent_eval_summary_full200.md`（基线）、`agent_eval_summary_post_opt.md`（优化后）。
+
+## 其它自动评测
+
+```powershell
+# 纯检索（本地 Milvus，不跑 Agent）
+python eval/scripts/run_retrieval_eval.py --seed 42 --per-category 50 --run-id seed42
+# 分阶段耗时（小样本）
+python eval/scripts/run_latency_breakdown.py --seed 42 --per-category 6 --run-id n24
+# 约束 warn vs enforce（mock，不打 API）
+python eval/scripts/run_constraint_compare.py
+# 并发吞吐（注意限流）
+python eval/scripts/run_throughput_eval.py --n 30 --concurrency 3
+```

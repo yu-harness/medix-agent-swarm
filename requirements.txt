@@ -35,3 +35,7 @@ tqdm>=4.65.0
 # 异步支持
 aiohttp>=3.8.0
 httpx>=0.24.0
+
+# HTTP API
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0

@@ -276,6 +276,92 @@ class ShortTermMemory:
 
         return openai_messages
 
+    @staticmethod
+    def _strip_user_content(content: str) -> str:
+        text = (content or "").strip()
+        if "用户问题：" in text:
+            text = text.split("用户问题：")[-1].strip()
+        if "用户本轮问题：" in text:
+            text = text.split("用户本轮问题：")[-1].split("\n任务：")[0].strip()
+        for marker in ("【本轮模式", "【本会话已知信息】", "【强制规则】", "背景信息：", "[系统信息]"):
+            if marker in text:
+                text = text.split(marker)[0].strip()
+        return text.strip()
+
+    def _anchor_from_complaints(self, complaints: List[str]) -> str:
+        if not complaints:
+            return ""
+        blob = "；".join(complaints[-3:])
+        tags: List[str] = []
+        pop_rules = [
+            (("孩子", "儿童", "宝宝", "小儿", "婴儿", "幼儿"), "儿童"),
+            (("孕妇", "怀孕", "妊娠"), "孕妇"),
+            (("老人", "老年", "高龄"), "老年人"),
+        ]
+        for keys, label in pop_rules:
+            if any(k in blob for k in keys):
+                tags.append(label)
+                break
+
+        symptom_keys = (
+            "咳嗽", "发烧", "发热", "头痛", "胸闷", "腹泻", "呕吐", "皮疹",
+            "高血压", "糖尿病", "哮喘", "鼻塞", "咽痛", "腹痛", "气喘",
+        )
+        for k in symptom_keys:
+            if k in blob and k not in tags:
+                tags.append(k)
+
+        if tags:
+            return "、".join(tags) + f"（用户表述：{complaints[-1]}）"
+        return complaints[-1]
+
+    def extract_session_anchor(
+        self,
+        session_id: str,
+        messages: Optional[List[Dict[str, Any]]] = None,
+        limit: int = 50
+    ) -> str:
+        """从用户主诉轮次（优先）或短期记忆用户消息提取本会话锚点。"""
+        turns = self.get_user_turns(session_id)
+        if turns:
+            return self._anchor_from_complaints(turns)
+
+        msgs = messages if messages is not None else self.get_recent_messages(session_id, limit)
+        complaints: List[str] = []
+        for m in msgs:
+            if m.get("role") != "user":
+                continue
+            text = self._strip_user_content(m.get("content") or "")
+            if not text or len(text) > 300:
+                continue
+            if text.startswith(("评估", "提供", "检索", "回答用户", "承接：", "用户本轮问题")):
+                continue
+            if text not in complaints:
+                complaints.append(text)
+
+        return self._anchor_from_complaints(complaints)
+
+    def record_user_question(self, session_id: str, question: str):
+        """记录原始用户主诉（不受 Swarm Worker 消息污染）。"""
+        q = (question or "").strip()
+        if not q:
+            return
+        history = self.get_session(session_id)
+        if history is None:
+            history = self.create_session(session_id)
+        turns = history.metadata.setdefault("user_turns", [])
+        if not turns or turns[-1] != q:
+            turns.append(q)
+            history.last_updated = datetime.now()
+            if self.storage_type == "redis" and self.redis_client:
+                self._save_to_redis(history)
+
+    def get_user_turns(self, session_id: str) -> List[str]:
+        history = self.get_session(session_id)
+        if not history:
+            return []
+        return list(history.metadata.get("user_turns") or [])
+
     def clear_session(self, session_id: str):
         """
         清空会话

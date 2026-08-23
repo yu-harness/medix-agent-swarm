@@ -8,7 +8,7 @@ agents:
       - risk_assessment
       - symptom_triage
 
-    # 允许的工具（当前所有 Agent 都注册了全部工具，这里定义推荐使用的工具）
+    # 允许的工具（全量注册后靠白名单约束；默认 warn，CONSTRAINT_ENFORCE=1 时硬拦）
     allowed_tools:
       - search_knowledge
       - recommend_lifestyle

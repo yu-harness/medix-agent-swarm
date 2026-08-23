@@ -124,15 +124,19 @@ class LeadAgent:
 
 ---
 
-### 策略 3：需要权威指南 → 2-3 个 Agents
-**问题特征**：
-- 询问疾病治疗方案
-- 需要标准诊疗规范
-- 需要权威指南和生活建议的综合方案
+### 策略 3：权威指南 / 疾病知识 → 优先 1 个 Agent
+**默认只用 1 个**：
+- 指南/共识/诊疗规范/原文检索 → 仅 ResearchAgent
+- 疾病定义、机制、并发症、用药类别科普 → 仅 ConsultationAgent（或明确要编码时 DiagnosticAgent）
+- “如何治疗/怎么治”若主要要指南要点 → 仅 ResearchAgent；不要顺带再挂 ConsultationAgent
+
+**只有同时强需要「指南要点 + 个性化生活建议」才用 2 个**（少用）。
 
 **示例**：
-- "高血压如何治疗？" → ResearchAgent (指南) + ConsultationAgent (生活建议)
 - "糖尿病最新诊疗指南是什么？" → ResearchAgent
+- "高血压诊断标准是什么？" → ResearchAgent
+- "什么是脂肪肝？" → ConsultationAgent
+- "高血压如何治疗？请结合生活建议" → ResearchAgent + ConsultationAgent
 
 ---
 
@@ -193,6 +197,10 @@ class LeadAgent:
 3. **Agent 会自主选择工具**：你不需要指定使用哪个工具/技能
 4. **尽量少分配**：1 个 Agent 能搞定的，不要分配 2 个
 5. **任务要独立**：各个 Agent 的任务应该可以并行执行
+6. **多轮追问（背景含 session_anchor / is_followup）**：
+   - 子任务 description **必须**含「承接：{session_anchor}」
+   - **禁止**让 Worker「请用户补充症状 / 尚未提供症状」
+   - 就医/护理/饮食等追问均继承锚点中的人群与主诉
 """
 
     async def assess_and_decompose(
@@ -207,9 +215,34 @@ class LeadAgent:
         - subtasks: List[SubTask] - 子任务列表
           每个子任务包含：type（工具名）、description（描述）、assigned_agent（负责的Agent）
         """
+        ctx = context or {}
+        anchor = ctx.get("session_anchor") or ""
+        is_followup = bool(ctx.get("is_followup") or ctx.get("recent_history") or anchor)
+
+        background_parts = []
+        if anchor:
+            background_parts.append(f"本会话已知信息（必须继承）：{anchor}")
+        if is_followup:
+            background_parts.append(
+                "本轮为追问：子任务 description 须写「承接：…」；"
+                "禁止「尚未提供症状/请补充症状」；就医/护理建议须锚定上述人群与主诉。"
+            )
+        # 避免把整段 recent_history dump 进 Lead；只传结构化字段摘要
+        skip = {"recent_history", "historical_cases"}
+        for k, v in ctx.items():
+            if k in skip or v is None:
+                continue
+            if k == "session_anchor":
+                continue
+            background_parts.append(f"{k}: {v}")
+        if ctx.get("historical_cases"):
+            background_parts.append(f"historical_cases: {len(ctx['historical_cases'])} 条参考（非本会话事实）")
+
+        background = "\n".join(background_parts) if background_parts else "无"
+
         messages = [
             {"role": "system", "content": self._get_system_prompt()},
-            {"role": "user", "content": f"问题：{question}\n\n背景：{context or '无'}"}
+            {"role": "user", "content": f"问题：{question}\n\n背景：\n{background}"}
         ]
 
         try:
@@ -310,7 +343,8 @@ class LeadAgent:
         self,
         question: str,
         shared_context: SharedContext,
-        timeout_occurred: bool = False
+        timeout_occurred: bool = False,
+        context: Optional[Dict[str, Any]] = None
     ) -> str:
         """
         汇总所有 Agent 的贡献，生成最终答案
@@ -321,6 +355,7 @@ class LeadAgent:
             question: 用户问题
             shared_context: 共享上下文
             timeout_occurred: 是否发生超时
+            context: 可选上下文（含 is_followup / recent_history）
         """
         # 收集所有贡献
         all_contributions = shared_context.get_contributions()
@@ -364,33 +399,41 @@ class LeadAgent:
 **注意**：由于系统响应超时，以下分析模块未能完成：{', '.join(incomplete_tasks)}
 以下是基于已完成的 {len(completed_agents)} 个 Agent 的部分分析结果。"""
 
+        ctx = context or {}
+        is_followup = bool(ctx.get('is_followup') or ctx.get('recent_history') or ctx.get('session_anchor'))
+        session_anchor = ctx.get('session_anchor') or ""
+
+        if is_followup:
+            mode_block = f"""**本轮模式：增量汇总**（有对话历史的细化追问）
+1. 一句承接：锚定本轮诉求 + 已知人群/主诉{f'（{session_anchor}）' if session_anchor else ''}（禁止「您之前问过XX」「上一轮已给完整建议」等假回忆）
+2. 综合各 Agent 的可执行增量（就医判断/护理/饮食等均可），勿再造整套六段/机制/全套风险分层
+3. **禁止**「尚未提供具体症状」「请补充症状」——历史锚点非空时必须继承
+4. 护理/就医建议必须针对锚点人群与主诉，勿换成无关成人通用病建议
+5. 一句就医红线；免责声明至多一次；【核心建议】可简短条目化
+"""
+        else:
+            mode_block = """**必须覆盖**：问题理解 → 相关知识/鉴别要点 → 风险分层 → 可执行建议（含常见处理方向与忌口）→ 就医指征 → 免责声明
+**要求**：
+1. 综合各 Agent，去掉重复套话
+2. 保留具体措施与分型原则；民间偏方写“可能有一定辅助、证据有限、不能替代规范治疗”
+3. 有【核心建议】条目化
+"""
+
+        anchor_line = f"\n**本会话已知信息**：{session_anchor}\n" if session_anchor else ""
+
         synthesis_prompt = f"""你是医疗 Swarm 的 Lead Agent，负责汇总多个专业 Agent 的分析结果。
 
 **用户问题**：{question}
-
+{anchor_line}
 **Agent 贡献**：
 {chr(10).join(contributions_text)}{timeout_note}
 
-**任务**：
-整合以上所有分析，生成一个全面、专业的最终答案。
+**任务**：整合成一份直接回答用户的最终答案，突出可执行要点，避免空泛。
 
-**要求**：
-1. 综合所有 Agent 的观点
-2. 突出多角度分析的优势
-3. 保持医疗建议的严谨性
-4. 包含【风险评估】【诊断分析】【医学证据】等模块（如果相关 Agent 提供了）
-5. 给出【核心建议】
-6. 添加【免责声明】
-{"7. 如果有分析模块未完成，在答案中明确说明" if timeout_occurred else ""}
+{mode_block}{"若有模块未完成，在答案中说明。" if timeout_occurred else ""}
 
 **输出格式**：
-【风险评估】 (如果有)
-...
-
-【诊断分析】 (如果有)
-...
-
-【医学证据】 (如果有)
+【回答】
 ...
 
 【核心建议】
