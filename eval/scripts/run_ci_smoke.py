@@ -267,6 +267,58 @@ def _gate1_safety(rep: Report) -> None:
         "幂等，无重复警示" if safe_out == safe_answer else "出现重复追加",
     )
 
+    # --- 1f~1h 出口展示清洗（_sanitize_display_answer）---
+    sanitize = SwarmCoordinator._sanitize_display_answer
+
+    debug_answer = (
+        "【文献检索结果】\n"
+        "关键词：高血压、降压目标值、血压控制目标\n"
+        "找到相关文献：主要依据《中国高血压防治指南（2024年修订版）》\n"
+        "\n"
+        "---\n"
+        "\n"
+        "# 【证据摘要】\n"
+        "1. **《中国高血压防治指南（2024年修订版）》**：一般高血压患者降压目标 <140/90 mmHg。\n"
+        "\n"
+        "---\n"
+        "\n"
+        "# 【综合评估】\n"
+        "- 证据强度：强\n"
+        "- 建议：合并糖尿病者目标可更低，需由医生个体化确定。\n"
+    )
+    cleaned = sanitize(stub, debug_answer)
+    leftovers = [k for k in ("【文献检索结果】", "关键词：", "找到相关文献", "---", "# 【") if k in cleaned]
+    keeps = [k for k in ("【证据摘要】", "【综合评估】", "140/90", "证据强度") if k in cleaned]
+    rep.add(
+        "G1", "出口清洗剔除调试前缀且保住正文", not leftovers and len(keeps) == 4,
+        f"残留 {leftovers or '无'}｜正文保留 {len(keeps)}/4 项（去掉了 {len(debug_answer) - len(cleaned)} 字）",
+    )
+
+    plain = (
+        "建议低盐饮食、规律运动、控制体重，并定期监测血压。\n\n"
+        "**要点**：\n"
+        "1. 每日食盐 <5g\n"
+        "2. 每周中等强度运动 150 分钟\n\n"
+        "【免责声明】\n以上信息仅供参考，不能替代专业医生的诊断和治疗。"
+    )
+    rep.add(
+        "G1", "出口清洗不误伤常规回答（字节级不变）",
+        sanitize(stub, plain) == plain and sanitize(stub, "") == "",
+        "常规回答与空串均原样返回",
+    )
+
+    table_answer = (
+        "不同人群的目标值如下：\n\n"
+        "| 人群 | 目标 |\n"
+        "| --- | --- |\n"
+        "| 一般高血压 | <140/90 mmHg |\n"
+        "| 合并糖尿病 | <130/80 mmHg |\n"
+    )
+    rep.add(
+        "G1", "出口清洗不误伤表格分隔行", sanitize(stub, table_answer) == table_answer,
+        "含 `| --- |` 的 markdown 表格原样保留",
+    )
+
 
 # ---------------------------------------------------------------- G2 检索召回
 

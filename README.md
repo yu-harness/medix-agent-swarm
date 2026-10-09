@@ -27,7 +27,7 @@ uvicorn api.app:app --host 0.0.0.0 --port 8000
 两个端点（都需要 `X-API-Key`）：
 
 - `POST /v1/chat` —— 一次性返回完整答案
-- `POST /v1/chat/stream` —— SSE 流式返回，事件为 `delta`（答案片段）、`done`（元信息）、`error`
+- `POST /v1/chat/stream` —— SSE 流式返回，事件为 `status`（协作阶段，由后端真实 Span 推导）、`delta`（答案片段）、`done`（元信息，含 Token 与费用账单）、`error`
 
 ```bash
 curl -N -X POST http://localhost:8000/v1/chat/stream \
@@ -54,6 +54,23 @@ docker compose up --build
 ```
 
 配置见 `config.example.py` / `.env.example`（`LLM_*`、`MEM0_*`、`APP_API_KEY`）。`config.py` / `.env` 已 gitignore。
+
+## Web Demo 快速体验
+
+一条命令起服务，浏览器直接打开就能问诊（页面是单文件、无构建步骤）：
+
+```bash
+python -m uvicorn api.app:app --host 127.0.0.1 --port 8000
+# 然后打开 http://127.0.0.1:8000/
+```
+
+三个值得点开看的交互：
+
+- **真实 Span 驱动的协作胶囊**：`任务分解中 → 多专家并行执行中 → 综合汇总中` 的胶囊由**后端真实 Span** 推导并通过 SSE `status` 事件推送，不是前端假动画——胶囊的节奏就是后端真实的运行时节奏；
+- **高危急症自动报警**：回答里出现「立即就医 / 拨打 120 / 急诊」等安全要素时，气泡顶部自动亮起红色急救横幅（由出口安全网保证这些要素不会被汇总环节吃掉）；
+- **精确指南页码的折叠抽屉**：把回答里的 `【资料 i｜来源：中国高血压防治指南（2024年修订版） p.15｜类型：临床指南】` 解析成可展开的来源卡片，点开看原文片段与页码。
+
+另外每个回答右下角有一条**账单小尾巴**（`TTFT 12.9s · 19.7k tokens · ¥0.0229`），点开可按 `lead_decompose` / `worker_*` / `lead_synthesize` 看分阶段明细。
 
 ## 架构一页
 
@@ -83,7 +100,7 @@ Agents：Consultation / Diagnostic / Research + LeadAgent / Coordinator
 
 ```
 agents/  core/  swarm/  memory/  knowledge/  research/
-constraints/  validation/  eval/  api/  .claude/skills/  main.py
+constraints/  validation/  eval/  api/  web/  .claude/skills/  main.py
 ```
 
 MIT License

@@ -10,6 +10,7 @@ SwarmCoordinator：Swarm 入口和智能路由
 """
 import asyncio
 import os
+import re
 import time
 import uuid
 from datetime import datetime
@@ -44,6 +45,28 @@ from memory.running_summary import (
 from constraints import ConstraintValidator
 from constraints.validator import detect_high_risk_signals, get_agent_role
 from validation import AutoFixer
+
+
+# --------------------------------------------------------------------------- #
+# 单 Agent 直出的「编排头」清洗
+#
+# ResearchAgent 的 system prompt 规定了三段内部结构
+# （【文献检索结果】/【证据摘要】/【综合评估】），那是**给 LeadAgent 消费的输入契约**，
+# 不能动；但单 Agent 路由下它会被直接端给用户，其中「关键词：… 找到相关文献：…」
+# 属于检索元数据，对患者无意义且带调试感。
+# 因此只在**出口**剥掉这一段元数据，正文（证据摘要 / 综合评估）完整保留。
+# --------------------------------------------------------------------------- #
+_META_SECTION = "【文献检索结果】"
+# 判定「这段确实是我们认识的那种检索元数据头」的线索词
+_META_HINTS = ("关键词", "找到相关文献", "检索词", "检索结果", "相关文献")
+# 下一节标记（【证据摘要】【综合评估】等），元数据头到此为止
+_NEXT_SECTION = re.compile(r"【[^】\n]{2,16}】")
+# 孤立的分隔线：整行只有 --- / *** / ___ （markdown 表格分隔行含 | ，不会被匹配）
+_ISOLATED_RULE = re.compile(r"^[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t]*$\n?", re.M)
+# 模型偶尔在节标记前多写一个 markdown 标题号：# 【综合评估】 → 【综合评估】
+_STRAY_HASH = re.compile(r"^([ \t]*)#{1,6}[ \t]*(?=【)", re.M)
+# 元数据头最多吃掉的字符数，防止在没有下一节标记时误吞正文
+_META_MAX_CHARS = 600
 
 
 class SwarmCoordinator:
@@ -581,7 +604,11 @@ class SwarmCoordinator:
                 duration_ms=timings[f"agent_{agent.agent_id}_ms"],
                 detail=f"单 Agent 路由（{mode}）",
             )
-            final_answer = result.get('answer', '')
+            # 出口清洗：单 Agent 直出时剥掉 ResearchAgent 的检索元数据头与装饰性分隔线
+            # （只动「编排头」，正文与结论完整保留；同时在 result 里写回，保证
+            #  SSE done.answer 与 /v1/chat 的 answer 都是清洗后的文本）
+            final_answer = self._sanitize_display_answer(result.get('answer', ''))
+            result['answer'] = final_answer
             result.update({
                 'swarm_enabled': False,
                 'session_id': session_id
@@ -650,6 +677,57 @@ class SwarmCoordinator:
                 )
         except Exception as e:
             logger.warning(f"Patient profile extraction skipped: {type(e).__name__}")
+
+    def _sanitize_display_answer(self, answer: str) -> str:
+        """剥掉单 Agent 直出时的「检索元数据头」与装饰性分隔线。
+
+        只做无损的两件事：
+        1. 答案开头附近（前 80 字内）出现 `【文献检索结果】`，且这段里含
+           `关键词`/`找到相关文献` 等线索时，把这段**元数据头**删到下一个 `【…】` 节标记为止
+           （没有节标记时只删连续的元数据行，绝不吞正文）；
+        2. 删掉孤立成行的 `---` / `***` / `___`（纯装饰；markdown 表格分隔行含 `|`，不受影响）。
+        附带一个窄修正：节标记前多写的 markdown 标题号（`# 【综合评估】` → `【综合评估】`）。
+
+        三条设计约束：
+        - **正常回答字节级不变**：没命中上述形态时直接原样返回（收尾的空白整理也只在真的删过东西时才做）；
+        - **不改 ResearchAgent 的 prompt**：那三段结构是 Swarm 里 LeadAgent 的输入契约；
+        - **只在单 Agent 直出路径调用**：Swarm 的答案是 Lead 重写过的正文，
+          它可能合法使用 `---` 做分隔，不该在这里被动刀。
+        """
+        if not isinstance(answer, str) or not answer:
+            return answer
+
+        text = answer
+
+        # 1) 检索元数据头
+        head_idx = text.find(_META_SECTION)
+        if 0 <= head_idx <= 80:
+            block = text[head_idx:head_idx + _META_MAX_CHARS]
+            if any(hint in block for hint in _META_HINTS):
+                nxt = _NEXT_SECTION.search(block, len(_META_SECTION))
+                if nxt:
+                    end = head_idx + nxt.start()
+                else:
+                    # 没有下一节标记：只删「开头的连续元数据行」，遇到第一条正经正文就停
+                    end = head_idx + len(_META_SECTION)
+                    consumed = 0
+                    for line in block.splitlines(keepends=True):
+                        consumed += len(line)
+                        stripped = line.strip()
+                        if stripped.startswith(_META_SECTION) or any(h in line for h in _META_HINTS):
+                            end = head_idx + consumed
+                        else:
+                            break
+                text = text[:head_idx] + text[end:]
+
+        # 2) 装饰性分隔线 + 节标记前多余的标题号
+        text = _STRAY_HASH.sub(r"\1", text)
+        text = _ISOLATED_RULE.sub("", text)
+
+        # 3) 只有真的删过东西时，才整理因删除产生的多余空行
+        if text != answer:
+            text = re.sub(r"\n{3,}", "\n\n", text).strip()
+        return text
 
     # 最终答案只处理这两类问题：缺免责声明、缺就医提醒。
     # 长度与语气之类的违规留给 worker 层，不在最终答案上改写用户看到的内容。
