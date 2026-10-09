@@ -3,7 +3,8 @@
 
 设计要点（为什么是「ContextVar 里放一个可变对象」）：
 
-`asyncio.create_task` 与 `run_in_executor` 都会**复制**当前 context。
+`asyncio.create_task` 会复制当前 context；线程池里我们统一走 `asyncio.to_thread`
+（它内部就是 `copy_context().run(...)`，**不依赖** `run_in_executor` 的版本行为）。
 在复制出来的 context 里给 ContextVar 重新赋值，**不会**回传到父 context。
 但只要多个 context 持有**同一个对象**，对对象内部状态的写入是互相可见的。
 

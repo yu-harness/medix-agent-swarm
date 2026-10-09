@@ -72,6 +72,50 @@ python -m uvicorn api.app:app --host 127.0.0.1 --port 8000
 
 另外每个回答右下角有一条**账单小尾巴**（`TTFT 12.9s · 19.7k tokens · ¥0.0229`），点开可按 `lead_decompose` / `worker_*` / `lead_synthesize` 看分阶段明细。
 
+## 可观测性：真实耗时瀑布流与成本账单
+
+每个请求都带一条**层级 Span 树**与一份**按阶段的 Token / 费用账单**，都来自运行时埋点而非事后估算。下面是一次真实 Swarm 请求（「头晕胸闷、血压 165/105，同时有糖尿病病史」）控制台原样输出：
+
+```text
+Request_Root                       ████████████████████████████  22971.2ms  100.0%  · 整条请求
+├─ Route_Decompose                    ███                            2136.6ms    9.3%  · LeadAgent 任务拆解
+├─ Worker_Pool_Execution              ███████████████               12256.2ms   53.4%  · 池内 3 个 Worker，2 个产出结果
+│  ├─ worker_diagnostic_agent            ███████████████               12255.2ms   53.4%  · Worker diagnostic_agent（子任务耗时）
+│  │  ├─ llm_call_1                         █                              1053.0ms    4.6%  · diagnostic_agent · 第 1 轮 · tool_calls · 2 次工具调用
+│  │  ├─ skill_assess_risk                  █                               676.3ms    2.9%  · diagnostic_agent · assess_risk · 命中 0 条
+│  │  ├─ skill_analyze_symptoms             ███                            2500.6ms   10.9%  · diagnostic_agent · analyze_symptoms · 命中 0 条
+│  │  ├─ llm_call_2                         █                               885.0ms    3.9%  · diagnostic_agent · 第 2 轮 · tool_calls · 1 次工具调用
+│  │  └─ llm_call_3                         █████████                      7114.7ms   31.0%  · diagnostic_agent · 第 3 轮 · stop
+│  └─ worker_consultation_agent          ██████████████                11657.7ms   50.7%  · Worker consultation_agent（子任务耗时）
+│     ├─ llm_call_1                         ███                            2661.2ms   11.6%  · consultation_agent · 第 1 轮 · tool_calls · 3 次工具调用
+│     ├─ skill_assess_risk                  ██                             1541.3ms    6.7%  · consultation_agent · assess_risk · 命中 0 条
+│     ├─ skill_search_knowledge             █                               708.2ms    3.1%  · consultation_agent · search_knowledge · 命中 5 条
+│     ├─ skill_recommend_lifestyle          █                               685.9ms    3.0%  · consultation_agent · recommend_lifestyle · 命中 0 条
+│     └─ llm_call_2                         ███████                        6057.4ms   26.4%  · consultation_agent · 第 2 轮 · stop
+└─ Lead_Synthesize                    ████████                       6530.5ms   28.4%  · Lead 汇总
+```
+
+> **实测证据：Worker 池耗时 12256.2 ms 与池内最慢的 `worker_diagnostic_agent`（12255.2 ms）完全重合**，而同期的 `worker_consultation_agent` 是 11657.7 ms —— 若串行执行，总耗时必然是 12.3 + 11.7 ≈ **24 s**。因此 **12.26 s 就是「多 Agent 真实并发、无阻塞」的直接铁证**。（Day 2 首次实测为同一现象：池 11.76 s ≈ 最慢 Worker 11.76 s、consultation 11.38 s。）
+
+同一次运行的成本对比：
+
+| 指标 | 单 Agent 路由 | Swarm 多 Agent | Swarm / 单 Agent |
+|---|---|---|---|
+| 端到端耗时 | 9.94 s | 22.97 s | **2.31x** |
+| Token 总量 | 11,771 | 25,787 | 2.19x |
+| 费用 | ¥0.01293 | ¥0.03045 | **2.35x** |
+| 参与 Agent | 1 | 2 | — |
+
+口径：两条问题在同一进程内串行执行、检索链路已预热，模型冷启动不计入；每次只有 1 条样本，倍数只看量级。Day 2 首次实测为 9.31 s / 22.25 s、¥0.01083 / ¥0.02583（同为 **2.39x**）——两种口径都指向同一个结论：**Swarm 用约 2.3 倍的成本与耗时，换来多 Agent 分工覆盖（高风险筛查 + 生活方式建议 + 汇总统稿）。**
+
+复现：
+
+```bash
+python scripts/eval_cost_and_waterfall.py --json-out
+```
+
+代码里看：Span 与账本在 `core/observability.py`，埋点分布在 `swarm/swarm_coordinator.py`（路由 / Worker 池 / 汇总）与 `core/agent_loop.py`（每轮 LLM 调用与每个 Skill），与前端状态胶囊同源。
+
 ## 架构一页
 
 ```

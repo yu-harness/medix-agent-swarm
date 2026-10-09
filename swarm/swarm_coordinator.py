@@ -138,7 +138,13 @@ class SwarmCoordinator:
         logger.info(f"Memory system: short_term={self.short_term_memory.storage_type}, long_term={'enabled' if self.long_term_memory.enabled else 'disabled'}")
 
     def _collapse_subtasks(self, subtasks: List[Dict[str, Any]], question: str) -> List[Dict[str, Any]]:
-        """减少不必要 Swarm：同 Agent 合并；指南类只留 research。"""
+        """减少不必要 Swarm：同 Agent 合并；**学术级循证**问题只留 research。
+
+        第二个条件必须**同时满足**，否则会误伤日常科普：
+        用户问「高血压指南推荐的目标值是多少」，只是要一个数字，不该因为
+        「指南」两个字就把问题压成 research_agent 单飞（那样会把文献证据结构端给用户）。
+        因此这里要求问题同时出现「学术意图」关键词（循证/RCT/多中心/综述…）才收窄。
+        """
         if not subtasks or len(subtasks) <= 1:
             return subtasks or []
         agent_ids = [t.get("assigned_agent") for t in subtasks]
@@ -146,7 +152,18 @@ class SwarmCoordinator:
             return [subtasks[0]]
         q = question or ""
         guide_kw = ("指南", "共识", "诊疗规范", "专家共识", "推荐意见")
-        if any(k in q for k in guide_kw) and "research_agent" in agent_ids:
+        academic_kw = (
+            "循证", "文献", "证据等级", "rct", "随机对照", "多中心", "头对头",
+            "荟萃", "meta", "最新研究", "机制", "争议", "对比研究",
+        )
+        # 安全底线：结果里已有 diagnostic_agent 时不合并——风险评估不能被"减少 Swarm"吃掉
+        if "diagnostic_agent" in agent_ids:
+            return subtasks
+        if (
+            any(k in q for k in guide_kw)
+            and any(k in q.lower() for k in academic_kw)
+            and "research_agent" in agent_ids
+        ):
             for t in subtasks:
                 if t.get("assigned_agent") == "research_agent":
                     return [t]
@@ -515,7 +532,11 @@ class SwarmCoordinator:
                 duration_ms=timings[f"agent_{agent_id}_ms"],
                 detail=f"单 Agent 路由 · {len(subtasks)} 个子任务",
             )
-            final_answer = result.get('answer', '')
+            # 出口清洗：单 Agent 直出时剥掉 ResearchAgent 的检索元数据头与装饰性分隔线。
+            # 注意这里与下方「Swarm 未开启」分支是**两个独立出口**，都要接线——
+            # 少接一个就会出现"函数测过了、路上没生效"（本仓库真实踩过）。
+            final_answer = self._sanitize_display_answer(result.get('answer', ''))
+            result['answer'] = final_answer
 
             result.update({
                 'swarm_enabled': False,
@@ -1125,8 +1146,10 @@ async def process_with_swarm(
     trace_id = trace_id or uuid.uuid4().hex[:12]
     coordinator = get_shared_coordinator(enable_swarm=enable_swarm)
     # loguru.contextualize：本请求内所有日志自动携带 trace_id。
-    # Python 3.12+ 的 asyncio.run_in_executor 会把 contextvars 传播进线程池，
-    # 因此连 Skill 线程里的日志也能带上 trace_id，实现端到端贯穿。
+    # 线程池里的 Skill 之所以也能带上 trace_id，是因为调度处统一用了
+    # asyncio.to_thread（内部 copy_context()），**不依赖** Python 版本对
+    # run_in_executor 的上下文行为——口径见 core/observability.py 与
+    # core/skill_registry.py 的同名说明。
     with logger.contextualize(trace_id=trace_id, session_id=session_id or "-"):
         logger.info(
             f"trace start: enable_swarm={enable_swarm} "

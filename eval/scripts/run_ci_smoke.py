@@ -319,6 +319,26 @@ def _gate1_safety(rep: Report) -> None:
         "含 `| --- |` 的 markdown 表格原样保留",
     )
 
+    # --- 1i 接线覆盖：单 Agent 的每个出口都必须真的调用清洗 ---
+    # 真实踩过：清洗函数写对了、行为断言也过了，但只接了一个出口分支，
+    # 主路径（single_agent）裸奔 —— 症状照旧。这里做一次源码级契约检查（零成本）。
+    src = (ROOT / "swarm" / "swarm_coordinator.py").read_text(encoding="utf-8").splitlines()
+    reads = [i for i, line in enumerate(src) if "result.get('answer'" in line]
+    unsanitized = [i for i in reads if "_sanitize_display_answer" not in src[i]]
+    # 唯一允许的例外：Swarm 分支（答案是 Lead 重写过的正文，故意不清洗）
+    swarm_ok = all(
+        any('mode = "swarm"' in src[j] for j in range(max(0, i - 12), i))
+        for i in unsanitized
+    )
+    detail = f"出口 {len(reads)} 处｜未清洗 {len(unsanitized)} 处"
+    if unsanitized and swarm_ok:
+        detail += "（唯一例外是 Swarm 分支，按设计不清洗）"
+    rep.add(
+        "G1", "单 Agent 出口路径全部接线清洗",
+        len(reads) >= 2 and len(unsanitized) <= 1 and swarm_ok,
+        detail,
+    )
+
 
 # ---------------------------------------------------------------- G2 检索召回
 
