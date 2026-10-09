@@ -13,6 +13,9 @@ from loguru import logger
 
 from .state_manager import StateManager, TaskStatus
 from .llm_client import LLMResponse, StreamStats, llm_safe_fallback_response
+# 可观测性：把每次 LLM / Skill 调用记成 Span，挂在本 Worker 的 Span 之下。
+# 无请求上下文时 current_spans() 返回 None，退化为空记录器（写起来不用到处判空）。
+from .observability import NOOP_SPANS, current_spans
 
 # Harness Engineering: 约束验证和自动修复
 try:
@@ -36,6 +39,18 @@ except ImportError:
 
     def detect_high_risk_signals(text):  # type: ignore
         return False
+
+
+# 接地指令：检索到的【资料 N】是医学事实的首要依据。
+# 放在 _initialize_messages 里统一拼进 system message——子类
+# （consultation_agent / diagnostic_agent）会覆写 format_user_input，
+# 只有系统提示词这条路能保证所有 Agent 都拿到。
+GROUNDING_RULES = (
+    "【接地要求】回答医学事实时，优先依据检索到的【资料 N】，并在引用处标出来源编号"
+    "（例如「资料 2」）；资料没有覆盖的内容不要凭空断言，直接说明「资料未覆盖」；"
+    "涉及药物用量与确诊时，提示就医并说明需遵医嘱。"
+    "若本轮没有检索到任何【资料】，按通用常识作答，并注明该部分未经知识库核实。"
+)
 
 
 def _sanitize_final_answer(text: str) -> str:
@@ -185,6 +200,14 @@ class AgentLoop:
         answer_ttft_ms: Optional[float] = None
         stream_enabled = bool(stream or on_delta is not None)
 
+        # 成本归因 / 瀑布流：本 Worker 的 Span 名与阶段标签（两者同名同源）
+        spans = current_spans() or NOOP_SPANS
+        worker_id = getattr(agent, "agent_id", "agent")
+        worker_span = f"worker_{worker_id}"
+        stage_label = worker_span
+        llm_call_index = 0
+        skill_span_index = 0
+
         logger.info(f"Starting Agent Loop for {agent.agent_id}, task_id={task_id}")
 
         try:
@@ -220,6 +243,7 @@ class AgentLoop:
 
                 try:
                     # 调用 LLM（可能返回 tool_calls）
+                    llm_call_index += 1
                     t_llm = time.perf_counter()
                     llm_args = {
                         "messages": messages,
@@ -227,25 +251,38 @@ class AgentLoop:
                         "tool_choice": "auto",
                         "temperature": agent.config.get('temperature', 0.7),
                         "fallback": llm_safe_fallback_response(),
+                        # 阶段标签：这次调用的 token 记到 worker_<agent_id> 名下
+                        "stage": stage_label,
                     }
-                    if stream_enabled:
-                        # 流式：正文增量实时交给 on_delta，并取回本轮 TTFT
-                        stream_stats = StreamStats()
-                        llm_response: LLMResponse = await agent.llm_client.chat_with_tools_stream(
-                            on_delta=on_delta,
-                            stats=stream_stats,
-                            **llm_args,
+                    with spans.span(
+                        f"llm_call_{llm_call_index}",
+                        parent=worker_span,
+                        detail=f"{worker_id} · 第 {state.iteration} 轮",
+                    ) as llm_meta:
+                        if stream_enabled:
+                            # 流式：正文增量实时交给 on_delta，并取回本轮 TTFT
+                            stream_stats = StreamStats()
+                            llm_response: LLMResponse = await agent.llm_client.chat_with_tools_stream(
+                                on_delta=on_delta,
+                                stats=stream_stats,
+                                **llm_args,
+                            )
+                            llm_ttft_ms.append(
+                                stream_stats.ttft_ms
+                                if stream_stats.ttft_ms is not None
+                                else stream_stats.first_chunk_ms
+                            )
+                        else:
+                            llm_response = await agent.llm_client.chat_with_tools(**llm_args)
+                        llm_calls_ms.append(
+                            round((time.perf_counter() - t_llm) * 1000, 1)
                         )
-                        llm_ttft_ms.append(
-                            stream_stats.ttft_ms
-                            if stream_stats.ttft_ms is not None
-                            else stream_stats.first_chunk_ms
+                        llm_meta["detail"] = (
+                            f"{worker_id} · 第 {state.iteration} 轮 · "
+                            f"{llm_response.finish_reason}"
                         )
-                    else:
-                        llm_response = await agent.llm_client.chat_with_tools(**llm_args)
-                    llm_calls_ms.append(
-                        round((time.perf_counter() - t_llm) * 1000, 1)
-                    )
+                        if llm_response.tool_calls:
+                            llm_meta["detail"] += f" · {len(llm_response.tool_calls)} 次工具调用"
 
                     # 记录中间结果
                     state.add_intermediate_result({
@@ -330,13 +367,34 @@ class AgentLoop:
                                 continue
 
                             t_skill = time.perf_counter()
-                            tool_result = await agent.execute_tool(
-                                tool_name=tool_call.name,
-                                arguments=tool_call.arguments
-                            )
-                            skill_calls_ms.append(
-                                round((time.perf_counter() - t_skill) * 1000, 1)
-                            )
+                            skill_span_index += 1
+                            with spans.span(
+                                f"skill_{tool_call.name}",
+                                parent=worker_span,
+                                worker=worker_id,
+                                skill=tool_call.name,
+                            ) as skill_meta:
+                                tool_result = await agent.execute_tool(
+                                    tool_name=tool_call.name,
+                                    arguments=tool_call.arguments
+                                )
+                                skill_calls_ms.append(
+                                    round((time.perf_counter() - t_skill) * 1000, 1)
+                                )
+                                # 检索类 Skill 的返回里带格式化来源头，抽出来挂在 Span 上：
+                                # 这样"这次回答引用了哪几份指南"与耗时图是同一份数据，不用事后复算
+                                hits = 0
+                                sources: List[str] = []
+                                if isinstance(tool_result, dict):
+                                    hits = int(tool_result.get("total_found") or 0)
+                                    sources = re.findall(
+                                        r"【资料 \d+｜[^】]*】", str(tool_result.get("answer") or "")
+                                    )
+                                skill_meta["hits"] = hits
+                                skill_meta["sources"] = sources
+                                skill_meta["detail"] = (
+                                    f"{worker_id} · {tool_call.name} · 命中 {hits} 条"
+                                )
 
                             # 采集结构化风险等级：assess_risk 等 Skill 会返回 risk_level 字段。
                             # 取本轮观察到的最高等级（保守取最大值）。
@@ -486,16 +544,23 @@ class AgentLoop:
                     })
 
                     # 调用 LLM（禁用 function calling）
+                    llm_call_index += 1
                     t_final = time.perf_counter()
-                    final_response = await agent.llm_client.chat_with_tools(
-                        messages=messages,
-                        tools=None,
-                        temperature=0.7,
-                        fallback=llm_safe_fallback_response(),
-                    )
-                    llm_calls_ms.append(
-                        round((time.perf_counter() - t_final) * 1000, 1)
-                    )
+                    with spans.span(
+                        f"llm_call_{llm_call_index}(强制收尾)",
+                        parent=worker_span,
+                        detail=f"{worker_id} · 达上限强制生成",
+                    ):
+                        final_response = await agent.llm_client.chat_with_tools(
+                            messages=messages,
+                            tools=None,
+                            temperature=0.7,
+                            fallback=llm_safe_fallback_response(),
+                            stage=stage_label,
+                        )
+                        llm_calls_ms.append(
+                            round((time.perf_counter() - t_final) * 1000, 1)
+                        )
 
                     result = {
                         'answer': final_response.content or '抱歉，未能完成任务',
@@ -551,12 +616,12 @@ class AgentLoop:
         """初始化消息列表，包含历史对话上下文"""
         messages = []
 
-        # 系统提示词
+        # 系统提示词（统一追加接地指令，覆盖所有 Agent）
         system_prompt = agent.get_system_prompt()
         if system_prompt:
             messages.append({
                 'role': 'system',
-                'content': system_prompt
+                'content': f"{system_prompt}\n\n{GROUNDING_RULES}"
             })
 
         # 加载历史对话（短期记忆）

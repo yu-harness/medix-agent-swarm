@@ -6,7 +6,8 @@
 质量优化（exact 29%→91%）：[docs/quality_optimization_29_to_91.md](docs/quality_optimization_29_to_91.md)  
 多轮上下文丢失 Bad Case：[docs/badcase_multiturn_context_loss.md](docs/badcase_multiturn_context_loss.md)  
 路由基线（规则预标非人工终审：模式 87.5% / 组合 83.0%；**人工抽审待用户**）：[results/route_eval_baseline.md](results/route_eval_baseline.md)  
-纯检索（hit@8 98.5%，n=200）：[results/retrieval_eval_seed42.md](results/retrieval_eval_seed42.md)  
+纯检索（hit@8 98.5%，n=200）：[results/retrieval_eval_seed42.md](results/retrieval_eval_seed42.md)
+CI 冒烟门禁（安全护栏 / 检索 hit@1 / 数据一致性，纯本地零 API）：`scripts/run_ci_smoke.py`，工作流 `.github/workflows/eval.yml`  
 分阶段耗时（n=24）：[results/latency_breakdown_n24.md](results/latency_breakdown_n24.md)  
 约束 warn vs enforce：[results/constraint_enforce_compare.md](results/constraint_enforce_compare.md)  
 并发吞吐（n=30,c=3）：[results/throughput_eval.md](results/throughput_eval.md)  

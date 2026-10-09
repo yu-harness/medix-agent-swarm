@@ -56,6 +56,10 @@ eval/raw/
 eval/data/benchmark_500.jsonl
 eval/data/benchmark_build_meta.json
 
+# CI 冒烟门禁（eval/scripts/run_ci_smoke.py）的结果产物：
+# 每次运行重新生成，由 GitHub Actions 上传为 artifact，不入库
+eval/results/ci_smoke_latest.json
+
 # Secrets / local config
 config.py
 *.pem
@@ -81,3 +85,17 @@ _dep_scan_tmp.py
 
 # 本地向量库与运行目录
 tmp/
+
+# 权威指南原文：受版权保护，仅本地留存，不入库
+knowledge/data/raw_guidelines/*.pdf
+knowledge/data/raw_guidelines/*.md
+knowledge/data/raw_guidelines/*.txt
+
+# 被真指南全文取代的旧二手摘要：归档为 .bak，仅本地留存
+knowledge/data/documents/*.bak
+
+# 患者画像：含真实交互片段，仅本地留存（不随仓库分发）
+memory/patient_profiles/
+
+# 指南入库报告：内含指南正文片段，仅本地留存
+knowledge/data/ingest_real_guidelines_report.json

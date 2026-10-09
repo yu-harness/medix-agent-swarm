@@ -1,5 +1,7 @@
 # MediX Agent Swarm
 
+[![Evaluation CI](https://github.com/yu-harness/medix-agent-swarm/actions/workflows/eval.yml/badge.svg)](https://github.com/yu-harness/medix-agent-swarm/actions/workflows/eval.yml)
+
 Skills → Agent Loop →（可选）Agent Swarm 的文本医疗助手。Milvus 知识库 + 短/长期记忆 + 约束（warn→enforce）。
 
 **仅供学习研究，不能替代就医。**

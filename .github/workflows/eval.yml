@@ -1,0 +1,79 @@
+name: Evaluation CI
+
+# 触发：main 分支的 push 与 PR
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Smoke evaluation gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    env:
+      # 冒烟门禁零 API 成本。项目里 core/llm_client.py 在「导入期」会做密钥 fail-fast，
+      # 这里给一个占位值放行导入；依赖真实 API 的用例会按设计自动跳过。
+      # 若将来要跑真实端到端评测，改成 ${{ secrets.LLM_API_KEY }} 并在仓库里配置密钥。
+      LLM_API_KEY: sk-xxx-ci-smoke-placeholder
+      MEM0_ENABLED: "0"
+      # CI 不下载约 1.1GB 的 cross-encoder 重排模型（检索走 RRF 融合顺序）
+      MEDIX_DISABLE_RERANK: "1"
+      HF_HOME: ${{ github.workspace }}/.hf-cache
+      TOKENIZERS_PARALLELISM: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      # 单独缓存模型权重：省掉每次 ~100MB 的 bge-small-zh-v1.5 下载，
+      # 比只缓存 pip 更关键（pip 缓存已由 setup-python 的 cache: pip 覆盖）
+      - name: Cache HuggingFace model
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.HF_HOME }}
+          key: hf-${{ runner.os }}-bge-small-zh-v1.5
+
+      # 先装 CPU 版 torch：requirements.txt 只约束 torch>=2.0.0，
+      # 默认会拉 CUDA 版本（数 GB），CI runner 没有 GPU，纯属浪费
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+          pip install pytest
+
+      # config.py 被 .gitignore 排除（含密钥），CI 里用示例配置现造一份
+      - name: Prepare local config
+        run: cp config.example.py config.py
+
+      # 仓库里的测试在 examples/ 下（没有 tests/ 目录），37 passed / 26 skipped 为本地基线
+      - name: Run unit tests
+        run: python -m pytest examples/ -q
+
+      # 三道硬门禁：安全护栏 / 检索 hit@1 / 数据一致性
+      # CI 无向量库与 PDF（两者都被 gitignore），脚本自动走「轻量模式」：
+      # 用仓库内被跟踪的知识文档现场建索引，跑检索链路与来源头契约
+      - name: Run smoke evaluation gates
+        run: python eval/scripts/run_ci_smoke.py --json-out eval/results/ci_smoke_latest.json
+
+      - name: Upload evaluation result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-smoke-result
+          path: eval/results/ci_smoke_latest.json
+          if-no-files-found: warn

@@ -1,0 +1,24 @@
+# 待手动补充：胸痛中心急危重症患者院前医疗急救转运专家共识
+
+自动下载未成功，请手动获取后放到本目录（保持文件名以该 id 开头即可被收录）：
+    目标文件名：04_chest_pain_transfer_consensus.pdf 或 04_chest_pain_transfer_consensus.md
+
+## 官方浏览地址
+    - 中华急诊医学杂志 https://www.cem.org.cn/
+    - 中国胸痛中心总部 https://www.chinacpc.org/
+
+## 各来源失败原因
+    - http://www.cem.org.cn/ → 页面可访问，但未找到 PDF 直链
+    - http://www.cem.org.cn/zine/content/id/8797 → 页面可访问，但未找到 PDF 直链
+    - https://www.cem.org.cn/ → TLS 握手失败
+
+## 备注
+    相邻文献（内容相关但不是同一份，需你判断是否采用）：
+    急性胸痛急诊诊疗专家共识（2019，中华医学会急诊医学分会）
+    https://csem.cma.org.cn/attach/0/5f104921b18243f98543fc5769ba58cb.pdf
+    危重症患者院际转运专家共识
+    https://icuguideline.com/wp-content/uploads/2022/06/危重症患者院际转运专家共识.pdf
+
+## 手动下载提示
+    - 从官方站点或机构公众号获取最稳妥；第三方文库常需登录或付费
+    - 拿到 PDF 后直接放进本目录，再跑一次 knowledge/scripts/import_hardcoded_data.py 入库

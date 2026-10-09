@@ -24,11 +24,21 @@ try:
 except ImportError:
     _HAS_BM25 = False
 
+# 中文句末标点：切分时的首选断点
+_SENTENCE_ENDS = "。！？；"
+
 try:
     from sentence_transformers import CrossEncoder
     _HAS_RERANKER = True
 except ImportError:
     _HAS_RERANKER = False
+
+# 评测 / CI 可关闭 cross-encoder 重排。
+# 重排模型 bge-reranker-base 约 1.1GB，无 GPU 的 CI runner 既下不起也跑不快；
+# 关闭后检索按 RRF 融合顺序返回（仍含 BM25 混合），结果可复现。
+DISABLE_RERANK = os.getenv("MEDIX_DISABLE_RERANK", "").strip().lower() in (
+    "1", "true", "yes", "on"
+)
 
 
 class MedicalKnowledgeBase:
@@ -150,8 +160,11 @@ class MedicalKnowledgeBase:
         self._reranker_lock = threading.Lock()
 
     def _get_reranker(self):
-        """懒加载 reranker（cross-encoder），按需加载，避免拖慢启动（线程安全）"""
-        if not _HAS_RERANKER:
+        """懒加载 reranker（cross-encoder），按需加载，避免拖慢启动（线程安全）
+
+        MEDIX_DISABLE_RERANK=1 时直接返回 None，走 RRF 顺序（评测/CI 用）。
+        """
+        if DISABLE_RERANK or not _HAS_RERANKER:
             return None
 
         # 快路径：已加载（或已标记失败）则直接返回
@@ -177,9 +190,31 @@ class MedicalKnowledgeBase:
 
         return self._reranker if self._reranker else None
 
+    def _cut_safely(self, text: str, size: int) -> int:
+        """硬切时把切点从连续数字中间挪开，避免把 100mg 切成 10 / 0mg。
+
+        Args:
+            text: 待切文本
+            size: 期望切点
+
+        Returns:
+            实际切点位置（始终 > 0，保证调用方一定能前进）
+        """
+        cut = min(size, len(text))
+        while 0 < cut < len(text) and text[cut - 1].isdigit() and text[cut].isdigit():
+            cut -= 1
+        if cut <= 0:  # 整段都是数字，退无可退，按原切点切
+            return min(size, len(text))
+        return cut
+
     def _chunk_text(self, text: str, chunk_size: int = 1024, overlap: int = 100) -> List[str]:
         """
-        分块文本
+        分块文本：先按换行与中文句末标点拆句，再按预算拼块。
+
+        与纯字符切片的区别：
+        1. 不从句子中间切断，剂量、结论不会被劈成两半；
+        2. 只有单句本身就超过 chunk_size 时才硬切，且切点避开连续数字（_cut_safely）；
+        3. 段落边界保留为优先切分点。
 
         Args:
             text: 原始文本
@@ -192,15 +227,45 @@ class MedicalKnowledgeBase:
         if len(text) <= chunk_size:
             return [text]
 
-        chunks = []
-        start = 0
-        while start < len(text):
-            end = start + chunk_size
-            chunk = text[start:end]
-            chunks.append(chunk)
-            start = end - overlap  # 重叠
+        # 1) 拆成「句子 + 段落边界」的最小区块
+        units: List[str] = []
+        for para in text.split("\n"):
+            para = para.strip()
+            if not para:
+                continue
+            buf = ""
+            for ch in para:
+                buf += ch
+                if ch in _SENTENCE_ENDS:
+                    units.append(buf)
+                    buf = ""
+            if buf:
+                units.append(buf)
+            units.append("\n")  # 段落边界：优先在这里断
 
-        return chunks
+        # 2) 贪心拼块：拼不下才断，尽量落在句子边界上
+        chunks: List[str] = []
+        cur = ""
+        for unit in units:
+            if len(unit) > chunk_size:  # 极端长句：只能硬切，但避开数字
+                if cur:
+                    chunks.append(cur)
+                    cur = ""
+                pos = 0
+                while pos < len(unit):
+                    step = self._cut_safely(unit[pos:], chunk_size)
+                    chunks.append(unit[pos:pos + step])
+                    pos += step
+                continue
+            if len(cur) + len(unit) > chunk_size:
+                chunks.append(cur)
+                cur = cur[-overlap:] + unit  # 重叠：把上一块尾部带过来
+            else:
+                cur += unit
+        if cur.strip():
+            chunks.append(cur)
+
+        return [c for c in chunks if c.strip()]
 
     def add_documents(self, documents: List[Dict[str, Any]], chunk_size: int = 1024) -> int:
         """

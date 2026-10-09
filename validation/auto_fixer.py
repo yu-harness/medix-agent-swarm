@@ -59,7 +59,15 @@ class AutoFixer:
         """
         fixed_output = output
 
-        for fix_type in auto_fixable:
+        # 顺序敏感，必须「急救提醒优先」：免责声明的样板文案里含「如有疑虑，请及时就医」，
+        # 而 fix_high_risk_warning 用 needs_emergency_guidance（关键词含「就医」）判断
+        # 「是否已有就医引导」。若先加免责声明，这句样板话会把判定骗过，
+        # 结果高危回答只拿到免责声明、拿不到「立即就医/120」——出口安全网静默失效。
+        # 因此这里固定顺序，不依赖调用方传入的顺序。
+        ordered = [f for f in ("add_emergency_warning", "add_disclaimer") if f in auto_fixable]
+        ordered += [f for f in auto_fixable if f not in ordered]
+
+        for fix_type in ordered:
             if fix_type == "add_disclaimer":
                 fixed_output = self.fix_missing_disclaimer(fixed_output)
             elif fix_type == "add_emergency_warning":

@@ -1,0 +1,96 @@
+{
+  "meta": {
+    "files": [
+      "ab_swarm_vs_single_20260829_092730.jsonl",
+      "ab_swarm_vs_single_20260829_093527.jsonl",
+      "ab_swarm_vs_single_20260829_093649.jsonl",
+      "ab_swarm_vs_single_20260829_094509.jsonl",
+      "ab_swarm_vs_single_20260830_022328.jsonl"
+    ],
+    "merged_at": "20260830_023210",
+    "n_total": 67,
+    "kb_chunks": "见各轮明细"
+  },
+  "summary": {
+    "n_requested": 67,
+    "n_valid": 65,
+    "n_error": 2,
+    "overall": {
+      "swarm_win": 29,
+      "single_win": 11,
+      "tie": 25,
+      "swarm_win_rate": 0.446
+    },
+    "scores_mean": {
+      "accuracy_swarm": 4.769,
+      "accuracy_single": 4.662,
+      "completeness_swarm": 4.785,
+      "completeness_single": 4.446,
+      "safety_swarm": 4.877,
+      "safety_single": 4.738
+    },
+    "latency_sec": {
+      "swarm_p50": 23.538,
+      "swarm_p95": 50.629,
+      "single_p50": 13.971,
+      "single_p95": 39.083,
+      "slowdown_p50": 1.68
+    },
+    "routing": {
+      "swarm_arm_actually_used_swarm": 21,
+      "swarm_arm_timeout": 1
+    },
+    "routing_split": {
+      "activated": {
+        "n": 21,
+        "swarm_win": 17,
+        "single_win": 2,
+        "tie": 2,
+        "lat_swarm_p50": 31.254,
+        "lat_single_p50": 13.422
+      },
+      "not_activated": {
+        "n": 44,
+        "swarm_win": 12,
+        "single_win": 9,
+        "tie": 23,
+        "lat_swarm_p50": 15.969,
+        "lat_single_p50": 14.674
+      }
+    },
+    "by_category": {
+      "health_consult": {
+        "n": 17,
+        "swarm_win": 8,
+        "single_win": 3,
+        "tie": 6,
+        "lat_swarm_p50": 22.356,
+        "lat_single_p50": 16.09
+      },
+      "symptom_diagnosis": {
+        "n": 17,
+        "swarm_win": 9,
+        "single_win": 1,
+        "tie": 7,
+        "lat_swarm_p50": 24.27,
+        "lat_single_p50": 12.726
+      },
+      "disease_knowledge": {
+        "n": 14,
+        "swarm_win": 7,
+        "single_win": 2,
+        "tie": 5,
+        "lat_swarm_p50": 12.724,
+        "lat_single_p50": 12.726
+      },
+      "guideline_retrieval": {
+        "n": 17,
+        "swarm_win": 5,
+        "single_win": 5,
+        "tie": 7,
+        "lat_swarm_p50": 28.901,
+        "lat_single_p50": 22.742
+      }
+    }
+  }
+}

@@ -1,0 +1,461 @@
+{
+  "generated_at": "2026-10-09 20:15:39",
+  "cases": [
+    {
+      "label": "单 Agent 路由",
+      "question": "高血压患者日常如何进行低盐饮食管理？",
+      "route": "single_agent",
+      "route_expected": "single_agent",
+      "route_matched": true,
+      "answer": "【回答】 **1. 问题理解** 您想了解高血压患者在日常饮食中具体如何做好“低盐管理”，即把每日食盐摄入降下来并长期坚持的可操作方法。 **2. 相关知识** - 钠盐摄入过多、钾摄入不足、钾钠比值偏低，是我国高血压发病的重要危险因素；适度减钠、增钾有助于降低血压（资料 2）。 - 我国居民膳食中约 **75% 的钠来自家庭烹饪用盐**，其次是高盐调味品和腌制品；随着饮食模式改变，加工食品中的钠也已成为重要来源（资料 3）。这决定了低盐管理的重点在“厨房”和“包装食品”。 - 目标量：钠摄入应首先减少 30%，并进一步降至 **2 g/d（约相当于氯化钠 5 g/d）**（资料 2、资料 3）。 **3. 风险分层** 本问题属于**低风险的健康管理咨询**（非急性症状）。但需注意：若血压突然升至 **>180/110 mmHg** 并伴头痛、胸痛、视物模糊，属紧急情况，需立即就医（资料 1）。 **4. 可执行建议** *（一）控盐的“硬指标”与工具* - 每日食盐目标 **<5 g**（约一个啤酒瓶盖平装的量）；先用定量盐勺做警示，逐步减量（资料 1、资料 3）。 - 肾功能良好者，推荐选择 **低钠富钾替代盐**（Ⅰ，B）；但肾功能不全者需先咨询医生（资料 2）。 - 可借助简易食品问卷、盐阈值片，或点尿钠估算公式半定量评估摄盐量（资料 3）。 *（二）厨房实操* - 减少烹调用盐，**少用味精、酱油、蚝油、豆瓣酱等高钠调味品**（资料 3）。 - 用**辣椒、大蒜、醋、胡椒、葱姜、柠檬**等替代部分咸味（资料 3）。 - 出锅前再放盐、蘸食代替拌食，可减少实际摄入量。 *（三）避开“隐形盐”* - 少吃或不吃：咸菜、酱菜、腌制品、火腿/香肠等加工肉类、各类炒货（资料 1、资料 3）。 - 购买包装食品看营养成分表，优先选钠含量低的产品（资料 3）。 *（四）搭配增钾与合理膳食* - 增加富钾食物：新鲜蔬菜、水果、豆类；每日蔬菜 500 g 以上、水果 200-350 g（资料 1、资料 3）。 - 不建议靠服用钾补充剂（含药物）来降压（资料 3）。 - 可参考 **DASH 饮食**（富含蔬果、低脂乳制品、禽肉、鱼、大豆、坚果，低脂低糖低盐）或符合国人习惯的 **CHH（中国心脏健康）饮食**，后者将每日钠从 6 g 降至 3 g，临床研究显示可显著降低血压（资料 4）。 - 同时控制饱和脂肪和胆固醇，减少红肉、动物内脏，选瘦肉、鱼类、豆制品（资料 1）。 *（五）配套生活方式* - 规律服降压药，不自行停药；每日早晚各测一次血压并记录（资料 1）。 - 戒烟限酒、控制体重（BMI 18.5-24，腰围男<90 cm、女<85 cm）、保证 7-8 小时睡眠（资料 1）。 **5. 就医指征** - 血压持续不达标或波动大：建议到**心内科/高血压专科门诊**复诊，通常 1-3 个月随访一次（资料 1）。 - 出现血压 >180/110 mmHg 伴头痛、胸痛、视物模糊：**立即就医或拨打 120**（资料 1）。 - 合并肾功能不全者调整替代盐或补钾前，务必先咨询医生（资料 2）。 **6. 免责声明** 以上信息仅供参考，不能替代专业医生的诊断和治疗。具体用药与个体化方案请遵医嘱。 【核心建议】 1. 每日食盐控制在 5 g 以内，用定量盐勺，先减 30% 再逐步达标。 2. 管住厨房：少放盐和酱油/味精，用醋、辣椒、蒜、胡椒替代咸味。 3. 远离隐形盐：腌制品、加工肉、炒货；买包装食品看钠含量。 4. 肾功能良好者可换低钠富钾盐，并多吃蔬果豆类增钾（勿自行服钾剂）。 5. 参考 DASH 或 CHH 膳食模式，同时规律服药、监测血压。 【免责声明】 以上信息仅供参考，不能替代专业医生的诊断和治疗。如有疑虑，请及时就医。",
+      "sources": [
+        "【资料 1｜来源：生活方式建议数据库｜类型：生活方式】",
+        "【资料 2｜来源：中国高血压防治指南（2024年修订版） p.15-16｜类型：临床指南】",
+        "【资料 3｜来源：中国高血压防治指南（2024年修订版） p.16｜类型：临床指南】",
+        "【资料 4｜来源：中国高血压防治指南（2024年修订版） p.16-17｜类型：临床指南】",
+        "【资料 5｜来源：中国2型糖尿病防治指南（2020年版） p.34｜类型：临床指南】"
+      ],
+      "total_ms": 37906.5,
+      "wall_ms": 39434.8,
+      "usage_and_cost": {
+        "total_tokens": 9984,
+        "prompt_tokens": 8739,
+        "completion_tokens": 1245,
+        "estimated_cost_cny": 0.01123,
+        "price": {
+          "prompt_cny_per_1m": 1.0,
+          "completion_cny_per_1m": 2.0
+        },
+        "breakdown": {
+          "worker_consultation_agent": {
+            "tokens": 8498,
+            "prompt_tokens": 7329,
+            "completion_tokens": 1169,
+            "cost_cny": 0.00967,
+            "calls": 2
+          },
+          "lead_decompose": {
+            "tokens": 1486,
+            "prompt_tokens": 1410,
+            "completion_tokens": 76,
+            "cost_cny": 0.00156,
+            "calls": 1
+          }
+        },
+        "unpriced_calls": 0
+      },
+      "spans": [
+        {
+          "name": "Request_Root",
+          "parent": null,
+          "start_ms": 0.0,
+          "duration_ms": 37906.5,
+          "meta": {
+            "detail": "整条请求"
+          }
+        },
+        {
+          "name": "Route_Decompose",
+          "parent": "Request_Root",
+          "start_ms": 2542.1,
+          "duration_ms": 1844.6,
+          "meta": {
+            "detail": "LeadAgent 任务拆解"
+          }
+        },
+        {
+          "name": "llm_call_1",
+          "parent": "worker_consultation_agent",
+          "start_ms": 2555.3,
+          "duration_ms": 1255.5,
+          "meta": {
+            "detail": "consultation_agent · 第 1 轮 · tool_calls · 2 次工具调用"
+          }
+        },
+        {
+          "name": "skill_search_knowledge",
+          "parent": "worker_consultation_agent",
+          "start_ms": 3813.0,
+          "duration_ms": 27425.7,
+          "meta": {
+            "worker": "consultation_agent",
+            "skill": "search_knowledge",
+            "hits": 5,
+            "sources": [
+              "【资料 1｜来源：生活方式建议数据库｜类型：生活方式】",
+              "【资料 2｜来源：中国高血压防治指南（2024年修订版） p.15-16｜类型：临床指南】",
+              "【资料 3｜来源：中国高血压防治指南（2024年修订版） p.16｜类型：临床指南】",
+              "【资料 4｜来源：中国高血压防治指南（2024年修订版） p.16-17｜类型：临床指南】",
+              "【资料 5｜来源：中国2型糖尿病防治指南（2020年版） p.34｜类型：临床指南】"
+            ],
+            "detail": "consultation_agent · search_knowledge · 命中 5 条"
+          }
+        },
+        {
+          "name": "skill_recommend_lifestyle",
+          "parent": "worker_consultation_agent",
+          "start_ms": 31239.7,
+          "duration_ms": 263.4,
+          "meta": {
+            "worker": "consultation_agent",
+            "skill": "recommend_lifestyle",
+            "hits": 0,
+            "sources": [],
+            "detail": "consultation_agent · recommend_lifestyle · 命中 0 条"
+          }
+        },
+        {
+          "name": "llm_call_2",
+          "parent": "worker_consultation_agent",
+          "start_ms": 31503.5,
+          "duration_ms": 5379.8,
+          "meta": {
+            "detail": "consultation_agent · 第 2 轮 · stop"
+          }
+        },
+        {
+          "name": "worker_consultation_agent",
+          "parent": "Request_Root",
+          "start_ms": 36885.6,
+          "duration_ms": 34333.3,
+          "meta": {
+            "detail": "单 Agent 路由 · 1 个子任务"
+          }
+        }
+      ],
+      "timings": {
+        "lead_decompose_ms": 1844.6,
+        "agent_consultation_agent_ms": 34333.3
+      },
+      "trace_id": "88aa7c3e2fea",
+      "agents_involved": []
+    },
+    {
+      "label": "Swarm 多 Agent 路由",
+      "question": "头晕胸闷、血压 165/105，同时有糖尿病病史，该怎么处理？",
+      "route": "swarm",
+      "route_expected": "swarm",
+      "route_matched": true,
+      "answer": "【回答】\n\n**1. 问题理解**\n您目前血压 **165/105 mmHg**，同时有**头晕、胸闷**，并有**糖尿病病史**。您想了解：这种情况严不严重、该怎么处理、日常如何管理、什么时候必须去医院。\n\n**2. 相关知识 / 鉴别要点**\n- 糖尿病合并高血压很常见，我国约 60% 的 2 型糖尿病患者合并高血压；两者并存会明显增加心、脑、肾、眼底并发症和死亡风险，而控制血压能显著降低这些风险。\n- 您 165/105 mmHg 已属 **2 级高血压**。按指南，**血压 ≥160/100 mmHg 就应立即启动降压药物治疗，并采用联合方案**；糖尿病患者的血压目标一般为 **<130/80 mmHg**（老年或合并严重冠心病者可放宽至 <140/90 mmHg）。\n- **胸闷**必须警惕：急性冠脉综合征（心梗/心绞痛）、主动脉夹层等；**头晕**需警惕高血压脑病、短暂性脑缺血发作（TIA）、脑卒中等。也就是说，这不是普通“头晕”，要优先排查心脑血管急症。\n- 是否为“高血压急症”，关键看**有没有靶器官急性损害**（脑、心、肾、眼底、大血管）。\n\n**3. 风险分层**\n⚠️ 需要说明：自动风险工具给出的“低危”评级**不能采信**——它没有充分计入“糖尿病 + 血压 165/105 + 胸闷”这一高危组合。\n**综合判断为中–高危 🔴🟠：需要尽快（今日）急诊或心内科评估，不能在家观察。**\n理由：2 级高血压 + 糖尿病（本身即心血管高危）+ 胸闷（需排除心梗/夹层）+ 头晕（需排除卒中）。\n\n**4. 可执行建议（含处理方向与忌口）**\n\n*当下立即做*\n- 静坐休息 5 分钟，规范复测血压（坐位、上臂与心脏齐平、测前避免活动/咖啡因）。\n- 立即自测指尖血糖：若 <3.9 mmol/L，按 **15-15 原则**处理——进食 15 g 速效碳水，15 分钟后复测。\n- **不要自行加服降压药，更不要“含服降压药快速降压”**——盲目快速降压可致脑/心灌注不足，尤其合并糖尿病者。药物调整必须遵医嘱。\n- 保持安静、解开衣领、停止活动；若胸闷持续 >5 分钟或加重，立即呼叫 120。\n- 记录症状出现时间、持续时间、诱因及伴随症状（大汗、放射痛、言语不清、肢体无力）。\n\n*用药方向（须遵医嘱，勿自行购药/停药）*\n- 五大类降压药（ACEI、ARB、钙通道阻滞剂、利尿剂、选择性 β 受体阻滞剂）均可用于糖尿病合并高血压。\n- 合并糖尿病通常**优先考虑 ACEI/ARB 类**（对肾脏和心血管有保护作用）；合并白蛋白尿或慢性肾病者首选 ACEI/ARB。\n- 联合方案一般**以 ACEI 或 ARB 为基础**，联合 CCB、小剂量利尿剂或选择性 β 受体阻滞剂。\n- 注意代谢影响：**大剂量长期用噻嗪类利尿剂可能升高血糖；β 受体阻滞剂可能掩盖低血糖时的心率增快反应**，故需小剂量、遵医嘱使用。\n- 若合并糖尿病且有心肾风险，医生可能考虑 **SGLT2i / GLP-1RA**，它们兼有轻度降压作用（收缩压约降 3–4 mmHg）。\n\n*饮食与忌口*\n- **限盐：每日食盐 <5 g**（钠 <2 g）；少吃腌制品、酱菜、加工肉、咸味零食。\n- 增钾：香蕉、土豆、豆类等（**肾功能异常者需遵医嘱，避免高钾风险**）。\n- 蔬菜每日 ≥500 g，水果 200–350 g，全谷物占主食 1/3 以上。\n- **控糖同步**：少喝含糖/果糖饮料；血糖目标 HbA1c<7%、空腹 4.4–7.0 mmol/L、餐后 2h<10.0 mmol/L。\n- 戒烟、限酒；BMI 控制在 18.5–24，男性腰围<90 cm、女性<85 cm；保证 7–8 小时睡眠。\n\n*运动*\n- 每周 ≥150 分钟中等强度有氧运动（快走、游泳、骑车）。\n- **血压未控制稳定（如当前 165/105）时，先就医，暂缓中高强度运动**；运动中若出现头晕、胸闷立即停止。\n\n*民间偏方*\n- 如“芹菜汁降压”“醋泡花生”“玉米须水”等，**可能有一定辅助作用，但证据有限，不能替代规范治疗和药物**，也不可因此停用医生开的药。\n\n**5. 就医指征**\n- **建议尽快（今日）就诊**：血压 165/105 已属明显升高，指南建议 ≥160/100 立即启动药物治疗；伴头晕胸闷更应面诊。建议科室：**心内科 + 内分泌科（或高血压专科）**。\n- **立即急诊 / 拨打 120**（不要自行驾车）：\n  - 胸闷呈**压榨感或撕裂样**、持续 >5 分钟、放射至左臂/下颌/背部；\n  - 大汗、呼吸困难、恶心呕吐、心悸、晕厥；\n  - 言语不清、口角歪斜、单侧肢体无力/麻木、视物模糊、意识改变；\n  - 血压**持续 ≥180/120 mmHg**，或复测仍 ≥165/105 且症状不缓解。\n- 就医时建议完善：**心电图 + 心肌酶/肌钙蛋白**（排除心梗）、急诊血压监测/动态血压、血糖及糖化血红蛋白、头颅 CT/MRI、颈动脉超声、肾功能、尿微量白蛋白、眼底检查、心脏超声等。\n\n【核心建议】\n1. **血压 165/105 伴头晕、胸闷，属中–高危，请今日尽快急诊或心内科就诊，不要在家观察。**\n2. **不要自行加服或含服降压药快速降压**；药物种类、剂量与是否联合用药必须由医生决定，合并糖尿病通常优先 ACEI/ARB 类，目标 <130/80 mmHg。\n3. 当下先静坐复测血压、自测血糖（<3.9 mmol/L 按 15-15 原则处理），保持安静，症状加重立即拨 120。\n4. **严格限盐 <5 g/日**、增钾、控糖控脂、戒烟限酒；血压未稳前暂缓中高强度运动。民间偏方仅可能辅助、证据有限，不能替代规范治疗。\n5. 出现压榨/撕裂样胸闷持续 >5 分钟、放射痛、大汗、言语不清或肢体无力，或血压 ≥180/120 伴头痛视物模糊，**立即拨打 120**。\n\n【免责声明】\n以上信息基于中国高血压防治指南（2024）、中国 2 型糖尿病防治指南（2020）等权威文献及多智能体分析，仅供健康参考，**不能替代专业医生的面诊、诊断和治疗**。具体检查、用药方案与剂量必须由医生结合您的完整临床资料（肾功能、血糖、心电图等）制定，请遵医嘱。鉴于本次症状组合的高危性，**强烈建议尽快就医**。",
+      "sources": [
+        "【资料 1｜来源：中国高血压防治指南（2024年修订版） p.51｜类型：临床指南】",
+        "【资料 2｜来源：中国2型糖尿病防治指南（2020年版） p.35｜类型：临床指南】",
+        "【资料 3｜来源：中国2型糖尿病防治指南（2020年版） p.34｜类型：临床指南】",
+        "【资料 4｜来源：中国2型糖尿病防治指南（2020年版） p.33-34｜类型：临床指南】",
+        "【资料 5｜来源：中国高血压防治指南（2024年修订版） p.50-51｜类型：临床指南】",
+        "【资料 1｜来源：中国2型糖尿病防治指南（2020年版） p.33-34｜类型：临床指南】"
+      ],
+      "total_ms": 25775.9,
+      "wall_ms": 25777.0,
+      "usage_and_cost": {
+        "total_tokens": 40868,
+        "prompt_tokens": 34834,
+        "completion_tokens": 6034,
+        "estimated_cost_cny": 0.0469,
+        "price": {
+          "prompt_cny_per_1m": 1.0,
+          "completion_cny_per_1m": 2.0
+        },
+        "breakdown": {
+          "worker_research_agent": {
+            "tokens": 13572,
+            "prompt_tokens": 12125,
+            "completion_tokens": 1447,
+            "cost_cny": 0.01502,
+            "calls": 3
+          },
+          "worker_consultation_agent": {
+            "tokens": 9951,
+            "prompt_tokens": 8688,
+            "completion_tokens": 1263,
+            "cost_cny": 0.01121,
+            "calls": 2
+          },
+          "worker_diagnostic_agent": {
+            "tokens": 9756,
+            "prompt_tokens": 8224,
+            "completion_tokens": 1532,
+            "cost_cny": 0.01129,
+            "calls": 3
+          },
+          "lead_synthesize": {
+            "tokens": 5828,
+            "prompt_tokens": 4204,
+            "completion_tokens": 1624,
+            "cost_cny": 0.00745,
+            "calls": 1
+          },
+          "lead_decompose": {
+            "tokens": 1564,
+            "prompt_tokens": 1418,
+            "completion_tokens": 146,
+            "cost_cny": 0.00171,
+            "calls": 1
+          },
+          "unlabeled": {
+            "tokens": 197,
+            "prompt_tokens": 175,
+            "completion_tokens": 22,
+            "cost_cny": 0.00022,
+            "calls": 1
+          }
+        },
+        "unpriced_calls": 0
+      },
+      "spans": [
+        {
+          "name": "Request_Root",
+          "parent": null,
+          "start_ms": 0.0,
+          "duration_ms": 25775.9,
+          "meta": {
+            "detail": "整条请求"
+          }
+        },
+        {
+          "name": "Route_Decompose",
+          "parent": "Request_Root",
+          "start_ms": 2519.9,
+          "duration_ms": 2024.8,
+          "meta": {
+            "detail": "LeadAgent 任务拆解"
+          }
+        },
+        {
+          "name": "llm_call_1",
+          "parent": "worker_research_agent",
+          "start_ms": 2524.7,
+          "duration_ms": 1041.6,
+          "meta": {
+            "detail": "research_agent · 第 1 轮 · tool_calls · 2 次工具调用"
+          }
+        },
+        {
+          "name": "llm_call_1",
+          "parent": "worker_diagnostic_agent",
+          "start_ms": 2523.5,
+          "duration_ms": 1323.3,
+          "meta": {
+            "detail": "diagnostic_agent · 第 1 轮 · tool_calls · 2 次工具调用"
+          }
+        },
+        {
+          "name": "llm_call_1",
+          "parent": "worker_consultation_agent",
+          "start_ms": 2521.9,
+          "duration_ms": 2227.8,
+          "meta": {
+            "detail": "consultation_agent · 第 1 轮 · tool_calls · 3 次工具调用"
+          }
+        },
+        {
+          "name": "skill_clinical_guideline",
+          "parent": "worker_research_agent",
+          "start_ms": 3567.5,
+          "duration_ms": 1248.0,
+          "meta": {
+            "worker": "research_agent",
+            "skill": "clinical_guideline",
+            "hits": 0,
+            "sources": [],
+            "detail": "research_agent · clinical_guideline · 命中 0 条"
+          }
+        },
+        {
+          "name": "skill_assess_risk",
+          "parent": "worker_diagnostic_agent",
+          "start_ms": 3864.5,
+          "duration_ms": 1517.0,
+          "meta": {
+            "worker": "diagnostic_agent",
+            "skill": "assess_risk",
+            "hits": 0,
+            "sources": [],
+            "detail": "diagnostic_agent · assess_risk · 命中 0 条"
+          }
+        },
+        {
+          "name": "skill_assess_risk",
+          "parent": "worker_consultation_agent",
+          "start_ms": 4751.1,
+          "duration_ms": 1794.5,
+          "meta": {
+            "worker": "consultation_agent",
+            "skill": "assess_risk",
+            "hits": 0,
+            "sources": [],
+            "detail": "consultation_agent · assess_risk · 命中 0 条"
+          }
+        },
+        {
+          "name": "skill_search_knowledge",
+          "parent": "worker_research_agent",
+          "start_ms": 4815.9,
+          "duration_ms": 1778.7,
+          "meta": {
+            "worker": "research_agent",
+            "skill": "search_knowledge",
+            "hits": 5,
+            "sources": [
+              "【资料 1｜来源：中国高血压防治指南（2024年修订版） p.51｜类型：临床指南】",
+              "【资料 2｜来源：中国2型糖尿病防治指南（2020年版） p.35｜类型：临床指南】",
+              "【资料 3｜来源：中国2型糖尿病防治指南（2020年版） p.34｜类型：临床指南】",
+              "【资料 4｜来源：中国2型糖尿病防治指南（2020年版） p.33-34｜类型：临床指南】",
+              "【资料 5｜来源：中国高血压防治指南（2024年修订版） p.50-51｜类型：临床指南】"
+            ],
+            "detail": "research_agent · search_knowledge · 命中 5 条"
+          }
+        },
+        {
+          "name": "skill_search_knowledge",
+          "parent": "worker_consultation_agent",
+          "start_ms": 6546.1,
+          "duration_ms": 977.6,
+          "meta": {
+            "worker": "consultation_agent",
+            "skill": "search_knowledge",
+            "hits": 5,
+            "sources": [
+              "【资料 1｜来源：中国2型糖尿病防治指南（2020年版） p.33-34｜类型：临床指南】",
+              "【资料 2｜来源：中国2型糖尿病防治指南（2020年版） p.33｜类型：临床指南】",
+              "【资料 3｜来源：中国高血压防治指南（2024年修订版） p.32｜类型：临床指南】",
+              "【资料 4｜来源：中国高血压防治指南（2024年修订版） p.35｜类型：临床指南】",
+              "【资料 5｜来源：中国高血压防治指南（2024年修订版） p.31｜类型：临床指南】"
+            ],
+            "detail": "consultation_agent · search_knowledge · 命中 5 条"
+          }
+        },
+        {
+          "name": "llm_call_2",
+          "parent": "worker_research_agent",
+          "start_ms": 6594.9,
+          "duration_ms": 1023.5,
+          "meta": {
+            "detail": "research_agent · 第 2 轮 · tool_calls · 1 次工具调用"
+          }
+        },
+        {
+          "name": "skill_recommend_lifestyle",
+          "parent": "worker_consultation_agent",
+          "start_ms": 7539.3,
+          "duration_ms": 1429.9,
+          "meta": {
+            "worker": "consultation_agent",
+            "skill": "recommend_lifestyle",
+            "hits": 0,
+            "sources": [],
+            "detail": "consultation_agent · recommend_lifestyle · 命中 0 条"
+          }
+        },
+        {
+          "name": "skill_analyze_symptoms",
+          "parent": "worker_diagnostic_agent",
+          "start_ms": 5382.2,
+          "duration_ms": 3618.8,
+          "meta": {
+            "worker": "diagnostic_agent",
+            "skill": "analyze_symptoms",
+            "hits": 0,
+            "sources": [],
+            "detail": "diagnostic_agent · analyze_symptoms · 命中 0 条"
+          }
+        },
+        {
+          "name": "llm_call_2",
+          "parent": "worker_diagnostic_agent",
+          "start_ms": 9001.3,
+          "duration_ms": 1125.5,
+          "meta": {
+            "detail": "diagnostic_agent · 第 2 轮 · tool_calls · 1 次工具调用"
+          }
+        },
+        {
+          "name": "llm_call_3",
+          "parent": "worker_research_agent",
+          "start_ms": 7634.6,
+          "duration_ms": 5158.8,
+          "meta": {
+            "detail": "research_agent · 第 3 轮 · stop"
+          }
+        },
+        {
+          "name": "llm_call_2",
+          "parent": "worker_consultation_agent",
+          "start_ms": 8969.9,
+          "duration_ms": 5253.5,
+          "meta": {
+            "detail": "consultation_agent · 第 2 轮 · stop"
+          }
+        },
+        {
+          "name": "llm_call_3",
+          "parent": "worker_diagnostic_agent",
+          "start_ms": 10127.1,
+          "duration_ms": 7021.1,
+          "meta": {
+            "detail": "diagnostic_agent · 第 3 轮 · stop"
+          }
+        },
+        {
+          "name": "Worker_Pool_Execution",
+          "parent": "Request_Root",
+          "start_ms": 17151.4,
+          "duration_ms": 14630.7,
+          "meta": {
+            "detail": "3 个 Worker 并发"
+          }
+        },
+        {
+          "name": "Lead_Synthesize",
+          "parent": "Request_Root",
+          "start_ms": 23908.0,
+          "duration_ms": 6756.5,
+          "meta": {
+            "detail": "Lead 汇总"
+          }
+        },
+        {
+          "name": "worker_diagnostic_agent",
+          "parent": "Worker_Pool_Execution",
+          "start_ms": 25773.9,
+          "duration_ms": 14629.7,
+          "meta": {
+            "detail": "Worker diagnostic_agent（子任务耗时）"
+          }
+        },
+        {
+          "name": "worker_research_agent",
+          "parent": "Worker_Pool_Execution",
+          "start_ms": 25774.0,
+          "duration_ms": 10272.8,
+          "meta": {
+            "detail": "Worker research_agent（子任务耗时）"
+          }
+        },
+        {
+          "name": "worker_consultation_agent",
+          "parent": "Worker_Pool_Execution",
+          "start_ms": 25774.0,
+          "duration_ms": 11705.4,
+          "meta": {
+            "detail": "Worker consultation_agent（子任务耗时）"
+          }
+        }
+      ],
+      "timings": {
+        "agent_diagnostic_agent_ms": 14629.693,
+        "agent_research_agent_ms": 10272.828000000001,
+        "agent_consultation_agent_ms": 11705.437,
+        "synthesize_ms": 8622.6,
+        "swarm_total_ms": 23907.9,
+        "lead_decompose_ms": 2024.8
+      },
+      "trace_id": "d87d76f545cd",
+      "agents_involved": [
+        "research_agent",
+        "consultation_agent",
+        "diagnostic_agent"
+      ]
+    }
+  ]
+}

@@ -18,6 +18,17 @@ from loguru import logger
 
 from core import LLMClient
 from core.llm_client import StreamStats
+# 可观测性：本请求的 Token 账本 / Span 记录器（ContextVar 里放可变对象，见 observability.py）
+from core.observability import (
+    NOOP_SPANS,
+    ROOT_SPAN,
+    ROUTE_SPAN,
+    SYNTH_SPAN,
+    WORKER_POOL_SPAN,
+    begin_observability,
+    current_spans,
+    format_span_waterfall,
+)
 from .shared_context import SharedContext
 from .lead_agent import LeadAgent
 from .events import Event, EventType
@@ -30,7 +41,9 @@ from memory.running_summary import (
     split_history_by_budget,
     generate_summary,
 )
-from constraints.validator import get_agent_role
+from constraints import ConstraintValidator
+from constraints.validator import detect_high_risk_signals, get_agent_role
+from validation import AutoFixer
 
 
 class SwarmCoordinator:
@@ -69,6 +82,10 @@ class SwarmCoordinator:
             self.diagnostic_agent,
             self.research_agent
         ]
+
+        # 最终答案的安全网：Lead 汇总后仍要过一遍输出校验与自动修复
+        self.validator = ConstraintValidator()
+        self.auto_fixer = AutoFixer()
 
         # 记忆管理器
         self.session_manager = SessionSummaryManager()
@@ -413,6 +430,9 @@ class SwarmCoordinator:
             ]
             logger.info(f"Found {len(similar_memories)} similar historical cases from long-term memory")
 
+        # 可观测性：本请求的 Span 记录器（不在请求上下文里时退化为空记录器）
+        spans = current_spans() or NOOP_SPANS
+
         # Step 1: LeadAgent 分解任务
         t_lead = time.perf_counter()
         assessment = await self.lead_agent.assess_and_decompose(question, enhanced_context)
@@ -420,6 +440,13 @@ class SwarmCoordinator:
         timings: Dict[str, Any] = {
             "lead_decompose_ms": round((time.perf_counter() - t_lead) * 1000, 1),
         }
+        # 瀑布流第一层：任务拆解（子节点由 LeadAgent / AgentLoop 自己挂到本节点之下）
+        spans.mark(
+            ROUTE_SPAN,
+            parent=ROOT_SPAN,
+            duration_ms=timings["lead_decompose_ms"],
+            detail="LeadAgent 任务拆解",
+        )
         subtasks = self._collapse_subtasks(assessment.get("subtasks", []), question)
         session_anchor = enhanced_context.get("session_anchor") or ""
         if session_anchor:
@@ -458,6 +485,13 @@ class SwarmCoordinator:
                 stream=stream,
             )
             timings[f"agent_{agent_id}_ms"] = round((time.perf_counter() - t_agent) * 1000, 1)
+            # 瀑布流：单 Agent 路由下，这个 Agent 就是唯一的工作节点
+            spans.mark(
+                f"worker_{agent_id}",
+                parent=ROOT_SPAN,
+                duration_ms=timings[f"agent_{agent_id}_ms"],
+                detail=f"单 Agent 路由 · {len(subtasks)} 个子任务",
+            )
             final_answer = result.get('answer', '')
 
             result.update({
@@ -540,6 +574,13 @@ class SwarmCoordinator:
             timings[f"agent_{agent.agent_id}_ms"] = round(
                 (time.perf_counter() - t_agent) * 1000, 1
             )
+            # 瀑布流：Swarm 未开启 / 无子任务时的降级单 Agent 路径
+            spans.mark(
+                f"worker_{agent.agent_id}",
+                parent=ROOT_SPAN,
+                duration_ms=timings[f"agent_{agent.agent_id}_ms"],
+                detail=f"单 Agent 路由（{mode}）",
+            )
             final_answer = result.get('answer', '')
             result.update({
                 'swarm_enabled': False,
@@ -610,6 +651,38 @@ class SwarmCoordinator:
         except Exception as e:
             logger.warning(f"Patient profile extraction skipped: {type(e).__name__}")
 
+    # 最终答案只处理这两类问题：缺免责声明、缺就医提醒。
+    # 长度与语气之类的违规留给 worker 层，不在最终答案上改写用户看到的内容。
+    _FINAL_ANSWER_FIXES = ("add_disclaimer", "add_emergency_warning")
+
+    def _enforce_output_safety(self, answer: str, question: str) -> str:
+        """给 Swarm 的最终答案补一道安全校验。
+
+        worker 内部各自过了校验，但 Lead 会重写答案，可能把就医提醒和免责声明丢掉；
+        这里在返回用户之前再过一遍，缺什么补什么。校验异常时原样返回，不影响主流程。
+        """
+        try:
+            risk_level = "high" if detect_high_risk_signals(question) else "low"
+            result = self.validator.validate_output(
+                "consultation_agent", answer, risk_level=risk_level
+            )
+            fixable = [
+                fix for fix in (result.get("auto_fixable") or [])
+                if fix in self._FINAL_ANSWER_FIXES
+            ]
+            if not fixable:
+                if not result.get("valid"):
+                    logger.warning(
+                        f"⚠️ Swarm 最终答案有非安全类违规（仅记录，不改写）: "
+                        f"{result.get('violations')}"
+                    )
+                return answer
+            logger.warning(f"⚠️ Swarm 最终答案缺安全要素，已自动补齐: {fixable}")
+            return self.auto_fixer.fix_output(answer, fixable, risk_level=risk_level)
+        except Exception as e:
+            logger.error(f"Final answer safety check failed, keep original: {e}")
+            return answer
+
     async def _process_with_swarm(
         self,
         question: str,
@@ -627,6 +700,10 @@ class SwarmCoordinator:
 
         注意：context 已经包含了长短期记忆（在 process() 中注入）
         """
+        # 可观测性：Span 记录器挂在请求上下文里，本方法自己取一次。
+        # 注意不能直接引用 process() 里的同名局部变量——那是另一个作用域。
+        spans = current_spans() or NOOP_SPANS
+
         # context 已经包含 recent_history 和 historical_cases
         # 无需重复检索
 
@@ -656,6 +733,7 @@ class SwarmCoordinator:
         logger.info(f"Created {len(subtasks)} subtasks")
 
         # Step 2: Worker 执行分配的任务（并行）
+        t_pool = time.perf_counter()
         tasks = []
         for worker in self.worker_pool:
             task = asyncio.create_task(
@@ -683,6 +761,16 @@ class SwarmCoordinator:
             logger.info(f"Completed agents: {completed_agents}")
             logger.info(f"Timed out tasks: {claimed_tasks}")
 
+        # 瀑布流第二层：Worker 池整体（子节点 worker_xxx 由下面按各 Worker 耗时补挂）
+        # 注意区分两个数：池里有几个 Worker，和这次真的有几个产出了结果
+        spans.mark(
+            WORKER_POOL_SPAN,
+            parent=ROOT_SPAN,
+            duration_ms=round((time.perf_counter() - t_pool) * 1000, 1),
+            detail=f"池内 {len(tasks)} 个 Worker，{len(shared_context.agent_contributions)} 个产出结果"
+            + ("（55s 超时中断）" if timeout_occurred else ""),
+        )
+
         # Step 3: LeadAgent 汇总结果
         # 即使超时，也尝试汇总已完成的部分结果
         t_synth = time.perf_counter()
@@ -698,6 +786,15 @@ class SwarmCoordinator:
             stream_stats=synth_stats,
         )
         answer_ttft_ms = synth_stats.ttft_ms if synth_stats else None
+        # 安全网：Lead 会重写 worker 的结论，可能丢掉就医提醒或免责声明
+        final_answer = self._enforce_output_safety(final_answer, question)
+        # 瀑布流第三层：Lead 汇总（含出口安检）
+        spans.mark(
+            SYNTH_SPAN,
+            parent=ROOT_SPAN,
+            duration_ms=round((time.perf_counter() - t_synth) * 1000, 1),
+            detail="Lead 汇总" + ("（超时后汇总部分结果）" if timeout_occurred else ""),
+        )
 
         end_time = datetime.now()
 
@@ -779,6 +876,16 @@ class SwarmCoordinator:
                 worker_timings[f"agent_{owner}_ms"] = max(
                     worker_timings.get(f"agent_{owner}_ms", 0.0), ms
                 )
+        # 瀑布流：把每个 Worker 挂到 Worker 池之下；它们的 llm_call_* / skill_* 子节点
+        # 由 AgentLoop 在运行时按同名父节点挂好（两边都用 worker_<agent_id> 命名）
+        for key, ms in worker_timings.items():
+            owner = key[len("agent_"):-len("_ms")]
+            spans.mark(
+                f"worker_{owner}",
+                parent=WORKER_POOL_SPAN,
+                duration_ms=ms,
+                detail=f"Worker {owner}（子任务耗时）",
+            )
         result = {
             'answer': final_answer,
             'swarm_enabled': True,
@@ -947,7 +1054,13 @@ async def process_with_swarm(
             f"trace start: enable_swarm={enable_swarm} "
             f"question_len={len(question) if question else 0}"
         )
+        # 成本归因 / 瀑布流：为本请求启用账本与 Span 记录。
+        # 必须在任何 create_task / 线程池派发之前设置——子上下文会复制这个 ContextVar。
+        ledger, span_recorder = begin_observability()
+
         t0 = time.perf_counter()
+        # 根 Span：整条请求（含记忆读写、路由、出口安检等所有开销）
+        span_recorder.mark(ROOT_SPAN, parent=None, duration_ms=0.0, detail="整条请求")
         result = await coordinator.process(
             question,
             context,
@@ -957,10 +1070,27 @@ async def process_with_swarm(
         )
         result["trace_id"] = trace_id
         result["total_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+
+        # 根 Span 的真实耗时 = 整条请求耗时（覆盖记忆读写等未单独打点的部分）
+        usage_and_cost = ledger.snapshot()
+        spans = span_recorder.snapshot()
+        for s in spans:
+            if s["name"] == ROOT_SPAN and s.get("parent") in (None, ""):
+                s["duration_ms"] = result["total_ms"]
+                break
+
+        result["usage_and_cost"] = usage_and_cost
+        result["spans"] = spans
+        # 需要时把瀑布流直接打进日志（排查线上长尾请求很方便）：
+        #   MEDIX_PRINT_WATERFALL=1 uvicorn api.app:app
+        if os.getenv("MEDIX_PRINT_WATERFALL") == "1":
+            logger.info("\n" + format_span_waterfall(spans, title=f"耗时瀑布流 trace={trace_id}"))
         logger.info(
             f"trace end: total_ms={result.get('total_ms')} "
             f"swarm_enabled={result.get('swarm_enabled')} "
             f"agents={result.get('agents_involved')} "
+            f"cost_cny={usage_and_cost.get('estimated_cost_cny')} "
+            f"tokens={usage_and_cost.get('total_tokens')} "
             f"timings={result.get('timings')}"
         )
     return result

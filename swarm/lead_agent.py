@@ -289,7 +289,8 @@ class LeadAgent:
         ]
 
         try:
-            content = await self.llm_client.chat(messages)
+            # 阶段标签：这次分解的 token 记到 lead_decompose 名下
+            content = await self.llm_client.chat(messages, stage="lead_decompose")
 
             logger.debug(f"LeadAgent assessment: {content[:200]}...")
 
@@ -464,20 +465,27 @@ class LeadAgent:
 """
 
         try:
+            # 阶段标签：汇总这一步的 token 记到 lead_synthesize 名下
             if on_delta is not None or stream:
                 # 汇总这一步是用户真正等待的生成：流式推字并取回 TTFT
                 response = await self.llm_client.chat_stream(
                     messages=[{"role": "user", "content": synthesis_prompt}],
                     on_delta=on_delta,
                     stats=stream_stats,
+                    stage="lead_synthesize",
                 )
             else:
                 response = await self.llm_client.chat([
                     {"role": "user", "content": synthesis_prompt}
-                ])
+                ], stage="lead_synthesize")
 
             return response
 
         except Exception as e:
+            # 不把异常字符串当答案给用户：换成医疗场景的兜底话术
             logger.error(f"Synthesis error: {e}")
-            return f"汇总结果时出错：{e}"
+            return (
+                "抱歉，本次未能完成汇总，请稍后重试。\n\n"
+                "【提示】各模块已分析的结论未能整合，如果症状明显或正在加重，请及时就医或拨打 120。\n\n"
+                "【免责声明】以上信息仅供参考，不能替代专业医生的诊断和治疗。"
+            )

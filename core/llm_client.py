@@ -26,6 +26,9 @@ from loguru import logger
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 from config import LLM_CONFIG, ensure_api_keys
+# 成本归因：把每次调用的 usage 累加进「本请求的账本」（见 core/observability.py）。
+# 放在 sys.path 注入之后导入，且 observability 不反向依赖本模块，因此无循环导入。
+from core.observability import DEFAULT_STAGE, current_ledger
 
 # 启动 fail-fast：缺少密钥立即给出指引，避免带空 key 静默运行
 ensure_api_keys()
@@ -94,6 +97,31 @@ LLM_SAFE_FALLBACK = (
 def llm_safe_fallback_response() -> "LLMResponse":
     """构造一个安全降级的 LLMResponse（无工具调用，finish_reason=error）。"""
     return LLMResponse(content=LLM_SAFE_FALLBACK, tool_calls=[], finish_reason="error")
+
+
+def _record_usage(stage: Optional[str], usage: Any) -> None:
+    """把一次 API 响应的 usage 记进当前请求的账本。
+
+    - 不在请求上下文里（如脚本直连、单元测试）时账本为 None，静默跳过；
+    - 流式调用若上游没有返回 usage（未开 include_usage 的兼容实现），记为 unpriced_calls，
+      而不是拿字符数估算——**宁可标"未计价"，也不编造 token 数**。
+    """
+    ledger = current_ledger()
+    if ledger is None:
+        return
+    if usage is None:
+        ledger.add(stage or DEFAULT_STAGE, 0, 0)
+        return
+    prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+    completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+    total_tokens = int(getattr(usage, "total_tokens", 0) or 0) or (
+        prompt_tokens + completion_tokens
+    )
+    ledger.add(stage or DEFAULT_STAGE, prompt_tokens, completion_tokens, total_tokens)
+    logger.debug(
+        f"[usage] stage={stage or DEFAULT_STAGE} prompt={prompt_tokens} "
+        f"completion={completion_tokens} total={total_tokens}"
+    )
 
 
 async def _call_maybe_async(callback: Callable[[str], Any], value: str) -> Any:
@@ -197,6 +225,7 @@ class LLMClient:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         fallback: Optional[str] = None,
+        stage: Optional[str] = None,
         **kwargs
     ) -> str:
         """
@@ -207,6 +236,7 @@ class LLMClient:
             temperature: 温度参数（可选）
             max_tokens: 最大token数（可选）
             fallback: 连续重试耗尽后的安全降级文本；为 None 则抛出
+            stage: 成本归因的阶段标签（如 lead_decompose / worker_xxx / lead_synthesize）
 
         Returns:
             模型返回的文本
@@ -224,6 +254,7 @@ class LLMClient:
                 max_tokens=max_tokens,
                 **kwargs
             )
+            _record_usage(stage, getattr(response, "usage", None))
             return response.choices[0].message.content
 
         content = await self._with_retry(_do, fallback=fallback)
@@ -251,6 +282,7 @@ class LLMClient:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         fallback: Optional["LLMResponse"] = None,
+        stage: Optional[str] = None,
         **kwargs
     ) -> LLMResponse:
         """
@@ -263,6 +295,7 @@ class LLMClient:
             temperature: 温度参数
             max_tokens: 最大token数
             fallback: 连续重试耗尽后的安全降级 LLMResponse；为 None 则抛出
+            stage: 成本归因的阶段标签（写入本请求的 Token 账本）
 
         Returns:
             LLMResponse 对象
@@ -287,6 +320,7 @@ class LLMClient:
 
         async def _do() -> LLMResponse:
             response = await self.client.chat.completions.create(**request_params)
+            _record_usage(stage, getattr(response, "usage", None))
             message = response.choices[0].message
             finish_reason = response.choices[0].finish_reason
 
@@ -322,6 +356,7 @@ class LLMClient:
         on_delta: Optional[Callable[[str], Any]] = None,
         stats: Optional[StreamStats] = None,
         fallback: Optional[str] = None,
+        stage: Optional[str] = None,
         **kwargs
     ) -> str:
         """
@@ -329,6 +364,9 @@ class LLMClient:
 
         用于「最终答案由一次纯生成完成」的场景（例如 Lead Agent 的汇总），
         这类调用不需要工具，但耗时最长，是用户感知延迟的主要来源。
+
+        Args:
+            stage: 成本归因的阶段标签（如 lead_synthesize）
         """
         fallback_response = (
             LLMResponse(content=fallback, tool_calls=[], finish_reason="chat_fallback")
@@ -342,6 +380,7 @@ class LLMClient:
             on_delta=on_delta,
             stats=stats,
             fallback=fallback_response,
+            stage=stage,
             **kwargs,
         )
         if response.content:
@@ -358,6 +397,7 @@ class LLMClient:
         on_delta: Optional[Callable[[str], Any]] = None,
         stats: Optional[StreamStats] = None,
         fallback: Optional["LLMResponse"] = None,
+        stage: Optional[str] = None,
         **kwargs
     ) -> LLMResponse:
         """
@@ -385,6 +425,9 @@ class LLMClient:
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": True,
+            # 让上游在流的最后一个 chunk 里带上 usage：流式调用的 Token 数
+            # 只能从这里拿到（正文增量里没有）。显式传参而不是靠默认值。
+            "stream_options": {"include_usage": True},
             **kwargs,
         }
         if tools:
@@ -400,6 +443,7 @@ class LLMClient:
             tool_acc: Dict[int, Dict[str, str]] = {}
             finish_reason = "stop"
             emitted = False
+            usage_seen = False
 
             try:
                 stream = await self.client.chat.completions.create(**request_params)
@@ -410,6 +454,13 @@ class LLMClient:
                             stats.first_chunk_ms = round(
                                 (time.perf_counter() - started) * 1000, 1
                             )
+
+                    # 开了 include_usage 后，最后一个 chunk 的 choices 为空但 usage 有值，
+                    # 必须在下面「没有 choices 就 continue」之前把它取走
+                    chunk_usage = getattr(chunk, "usage", None)
+                    if chunk_usage is not None:
+                        usage_seen = True
+                        _record_usage(stage, chunk_usage)
 
                     choices = getattr(chunk, "choices", None) or []
                     if not choices:
@@ -459,6 +510,11 @@ class LLMClient:
 
             if stats is not None:
                 stats.total_ms = round((time.perf_counter() - started) * 1000, 1)
+
+            # 上游没回 usage（未支持 include_usage 的兼容实现）时标为「未计价」，
+            # 保留在账本里可见；不拿字符数反推 token，避免账单失真
+            if not usage_seen:
+                _record_usage(stage, None)
 
             tool_calls: List[ToolCall] = []
             for index in sorted(tool_acc):

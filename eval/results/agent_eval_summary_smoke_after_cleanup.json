@@ -1,0 +1,67 @@
+{
+  "meta": {
+    "seed": 42,
+    "per_category": 50,
+    "n_target": 4,
+    "semaphore": 2,
+    "timeout_sec": 120.0,
+    "data": "D:\\md\\AI实习\\project\\居丽叶简历项目7：医疗助手\\medix-agent-swarm\\eval\\data\\benchmark_500.jsonl",
+    "detail_path": "medix-agent-swarm\\eval\\results\\agent_eval_detail_smoke_after_cleanup.jsonl",
+    "emb_high": 0.75,
+    "emb_low": 0.4,
+    "reuse_coordinator": true,
+    "started_at": "2026-09-02T06:36:38.285955+00:00",
+    "finished_at": "2026-09-02T06:39:21.743364+00:00",
+    "elapsed_sec": 163.5
+  },
+  "summary": {
+    "n": 4,
+    "correct": 4,
+    "partial": 0,
+    "exact_accuracy": 1.0,
+    "partial_rate": 0.0,
+    "latency": {
+      "mean": 14.909,
+      "p50": 11.93,
+      "p95": 24.813,
+      "n": 4
+    },
+    "by_category": {
+      "health_consult": {
+        "n": 0,
+        "correct": 0,
+        "partial": 0,
+        "exact_accuracy": null,
+        "partial_rate": null
+      },
+      "symptom_diagnosis": {
+        "n": 0,
+        "correct": 0,
+        "partial": 0,
+        "exact_accuracy": null,
+        "partial_rate": null
+      },
+      "disease_knowledge": {
+        "n": 1,
+        "correct": 1,
+        "partial": 0,
+        "exact_accuracy": 1.0,
+        "partial_rate": 0.0
+      },
+      "guideline_retrieval": {
+        "n": 3,
+        "correct": 3,
+        "partial": 0,
+        "exact_accuracy": 1.0,
+        "partial_rate": 0.0
+      }
+    },
+    "error_top": [],
+    "verdict_counts": {
+      "correct": 4
+    },
+    "mode_counts": {
+      "single_agent": 4
+    }
+  }
+}

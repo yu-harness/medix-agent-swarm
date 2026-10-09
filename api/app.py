@@ -211,6 +211,8 @@ async def chat_stream(body: ChatRequest):
                         "client_ttft_ms": first_delta_ms,
                         "answer_ttft_ms": payload.get("answer_ttft_ms"),
                         "timings": payload.get("timings"),
+                        # 成本归因：本次请求的 Token 与费用账单（按阶段明细）
+                        "usage_and_cost": payload.get("usage_and_cost"),
                     })
         finally:
             if not producer.done():

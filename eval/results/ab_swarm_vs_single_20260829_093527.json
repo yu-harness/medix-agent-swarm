@@ -1,0 +1,78 @@
+{
+  "meta": {
+    "seed": 42,
+    "per_category": 1,
+    "n_requested": 2,
+    "concurrency": 2,
+    "timeout": 120.0,
+    "elapsed_sec": 37.0,
+    "kb_chunks": 64,
+    "generated_at": "20260829_093527"
+  },
+  "summary": {
+    "n_requested": 2,
+    "n_valid": 2,
+    "n_error": 0,
+    "overall": {
+      "swarm_win": 0,
+      "single_win": 1,
+      "tie": 1,
+      "swarm_win_rate": 0.0
+    },
+    "scores_mean": {
+      "accuracy_swarm": 4.5,
+      "accuracy_single": 5.0,
+      "completeness_swarm": 5.0,
+      "completeness_single": 4.5,
+      "safety_swarm": 5.0,
+      "safety_single": 5.0
+    },
+    "latency_sec": {
+      "swarm_p50": 21.937,
+      "swarm_p95": 24.858,
+      "single_p50": 12.866,
+      "single_p95": 15.226,
+      "slowdown_p50": 1.71
+    },
+    "routing": {
+      "swarm_arm_actually_used_swarm": 1,
+      "swarm_arm_timeout": 0
+    },
+    "routing_split": {
+      "activated": {
+        "n": 1,
+        "swarm_win": 0,
+        "single_win": 0,
+        "tie": 1,
+        "lat_swarm_p50": 25.183,
+        "lat_single_p50": 10.245
+      },
+      "not_activated": {
+        "n": 1,
+        "swarm_win": 0,
+        "single_win": 1,
+        "tie": 0,
+        "lat_swarm_p50": 18.691,
+        "lat_single_p50": 15.488
+      }
+    },
+    "by_category": {
+      "symptom_diagnosis": {
+        "n": 1,
+        "swarm_win": 0,
+        "single_win": 0,
+        "tie": 1,
+        "lat_swarm_p50": 25.183,
+        "lat_single_p50": 10.245
+      },
+      "disease_knowledge": {
+        "n": 1,
+        "swarm_win": 0,
+        "single_win": 1,
+        "tie": 0,
+        "lat_swarm_p50": 18.691,
+        "lat_single_p50": 15.488
+      }
+    }
+  }
+}

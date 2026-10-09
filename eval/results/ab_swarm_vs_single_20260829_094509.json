@@ -1,0 +1,94 @@
+{
+  "meta": {
+    "seed": 42,
+    "per_category": 3,
+    "n_requested": 12,
+    "concurrency": 3,
+    "timeout": 180.0,
+    "elapsed_sec": 187.4,
+    "kb_chunks": 64,
+    "generated_at": "20260829_094509"
+  },
+  "summary": {
+    "n_requested": 12,
+    "n_valid": 12,
+    "n_error": 0,
+    "overall": {
+      "swarm_win": 6,
+      "single_win": 1,
+      "tie": 5,
+      "swarm_win_rate": 0.5
+    },
+    "scores_mean": {
+      "accuracy_swarm": 4.917,
+      "accuracy_single": 4.917,
+      "completeness_swarm": 4.917,
+      "completeness_single": 4.583,
+      "safety_swarm": 4.917,
+      "safety_single": 4.917
+    },
+    "latency_sec": {
+      "swarm_p50": 23.762,
+      "swarm_p95": 35.161,
+      "single_p50": 12.602,
+      "single_p95": 26.252,
+      "slowdown_p50": 1.89
+    },
+    "routing": {
+      "swarm_arm_actually_used_swarm": 5,
+      "swarm_arm_timeout": 0
+    },
+    "routing_split": {
+      "activated": {
+        "n": 5,
+        "swarm_win": 5,
+        "single_win": 0,
+        "tie": 0,
+        "lat_swarm_p50": 30.145,
+        "lat_single_p50": 12.726
+      },
+      "not_activated": {
+        "n": 7,
+        "swarm_win": 1,
+        "single_win": 1,
+        "tie": 5,
+        "lat_swarm_p50": 16.979,
+        "lat_single_p50": 12.477
+      }
+    },
+    "by_category": {
+      "health_consult": {
+        "n": 3,
+        "swarm_win": 2,
+        "single_win": 0,
+        "tie": 1,
+        "lat_swarm_p50": 30.145,
+        "lat_single_p50": 12.79
+      },
+      "symptom_diagnosis": {
+        "n": 3,
+        "swarm_win": 3,
+        "single_win": 0,
+        "tie": 0,
+        "lat_swarm_p50": 26.589,
+        "lat_single_p50": 12.726
+      },
+      "disease_knowledge": {
+        "n": 3,
+        "swarm_win": 1,
+        "single_win": 0,
+        "tie": 2,
+        "lat_swarm_p50": 11.118,
+        "lat_single_p50": 12.064
+      },
+      "guideline_retrieval": {
+        "n": 3,
+        "swarm_win": 0,
+        "single_win": 1,
+        "tie": 2,
+        "lat_swarm_p50": 23.538,
+        "lat_single_p50": 12.477
+      }
+    }
+  }
+}

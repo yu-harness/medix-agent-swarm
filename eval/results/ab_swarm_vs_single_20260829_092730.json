@@ -1,0 +1,43 @@
+{
+  "meta": {
+    "seed": 42,
+    "per_category": 1,
+    "n_requested": 2,
+    "concurrency": 2,
+    "timeout": 120.0,
+    "elapsed_sec": 169.9,
+    "kb_chunks": 64,
+    "generated_at": "20260829_092730"
+  },
+  "summary": {
+    "n_requested": 2,
+    "n_valid": 0,
+    "n_error": 2,
+    "overall": {
+      "swarm_win": 0,
+      "single_win": 0,
+      "tie": 0,
+      "swarm_win_rate": 0.0
+    },
+    "scores_mean": {
+      "accuracy_swarm": null,
+      "accuracy_single": null,
+      "completeness_swarm": null,
+      "completeness_single": null,
+      "safety_swarm": null,
+      "safety_single": null
+    },
+    "latency_sec": {
+      "swarm_p50": 0.0,
+      "swarm_p95": 0.0,
+      "single_p50": 0.0,
+      "single_p95": 0.0,
+      "slowdown_p50": 0.0
+    },
+    "routing": {
+      "swarm_arm_actually_used_swarm": 0,
+      "swarm_arm_timeout": 0
+    },
+    "by_category": {}
+  }
+}
