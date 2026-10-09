@@ -99,3 +99,9 @@ memory/patient_profiles/
 
 # 指南入库报告：内含指南正文片段，仅本地留存
 knowledge/data/ingest_real_guidelines_report.json
+
+# Web Demo 的运行日志与本地 PID 文件：进程运行时生成，不入库
+# （_web.log 同时也被上面的 *.log 覆盖，这里显式列出以免那条规则变动后漏网）
+_web.log
+_web.err
+*.pid
