@@ -50,13 +50,19 @@ class Lesson:
 
 @dataclass
 class PerformanceMetrics:
-    """性能指标"""
+    """性能指标
+
+    原则：**只填能从过程数据里真实算出来的字段，算不出来的保持 None。**
+    绝不用"看起来合理"的常数占位——假指标比没指标更危险，
+    它会让人基于错误数字做判断（例如拿 0.8 的并行效率去论证 Swarm 有效）。
+    """
     total_time: float  # 总耗时（秒）
     agent_count: int  # 参与 Agent 数量
-    parallel_efficiency: float  # 并行效率（0-1）
-    information_coverage: float  # 信息覆盖度（0-1）
-    redundancy: float  # 信息冗余度（0-1）
-    speedup_vs_single: float = 1.0  # 相比单 Agent 的加速比
+    parallel_efficiency: float  # 平均每个 Agent 的时间利用率（0-1），由子任务时间戳计算
+    # 以下三项暂无可信计算方式，保持 None 表示"未测量"
+    information_coverage: Optional[float] = None  # 需要 ground truth 才能算
+    redundancy: Optional[float] = None  # 需要重复度判定标准才能算
+    speedup_vs_single: Optional[float] = None  # 需要单 Agent 基线对照才能算
 
 
 @dataclass
@@ -92,6 +98,20 @@ class SessionSummary:
     # 元数据
     swarm_enabled: bool = True
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    @staticmethod
+    def _fmt_pct(value: Optional[float]) -> str:
+        """百分比格式化；未测量（None）时明确显示"未测量"，而不是显示 0%。"""
+        if value is None:
+            return "未测量"
+        return f"{value:.1%}"
+
+    @staticmethod
+    def _fmt_ratio(value: Optional[float]) -> str:
+        """倍数格式化；未测量（None）时明确显示"未测量"，而不是显示 1.00x（等于谎称无加速）。"""
+        if value is None:
+            return "未测量"
+        return f"{value:.2f}x"
 
     def to_markdown(self) -> str:
         """转换为 Markdown 格式"""
@@ -176,10 +196,10 @@ class SessionSummary:
             "",
             f"- 总耗时：{self.performance.total_time:.2f} 秒",
             f"- 参与 Agent：{self.performance.agent_count} 个",
-            f"- 并行效率：{self.performance.parallel_efficiency:.1%}",
-            f"- 信息覆盖度：{self.performance.information_coverage:.1%}",
-            f"- 信息冗余度：{self.performance.redundancy:.1%}",
-            f"- 加速比：{self.performance.speedup_vs_single:.2f}x",
+            f"- 并行效率：{self._fmt_pct(self.performance.parallel_efficiency)}",
+            f"- 信息覆盖度：{self._fmt_pct(self.performance.information_coverage)}",
+            f"- 信息冗余度：{self._fmt_pct(self.performance.redundancy)}",
+            f"- 加速比：{self._fmt_ratio(self.performance.speedup_vs_single)}",
             ""
         ])
 
@@ -200,6 +220,18 @@ class SessionSummary:
         # 计算性能指标
         total_time = (end_time - start_time).total_seconds()
 
+        # 每个 Agent 的真实忙碌时长：把它负责的子任务耗时相加。
+        # 原来写的是 total_time / agent_count —— 那是把墙钟时间平摊，
+        # 不是执行时间，而且会让"1 个 Agent 跑满"和"3 个 Agent 并行"看起来一样。
+        agent_busy: Dict[str, float] = {}
+        for subtask in getattr(shared_context, "task_decomposition", {}).values():
+            started = getattr(subtask, "started_at", None)
+            completed = getattr(subtask, "completed_at", None)
+            if started and completed:
+                delta = (completed - started).total_seconds()
+                owner = getattr(subtask, "assigned_agent", None) or "unknown"
+                agent_busy[owner] = agent_busy.get(owner, 0.0) + max(0.0, delta)
+
         # 提取 Agent 参与信息
         agents_participated = []
         for agent_id, contributions in shared_context.agent_contributions.items():
@@ -212,7 +244,7 @@ class SessionSummary:
                 role="worker",
                 subtasks_handled=[c.subtask_id for c in contributions],
                 tool_calls=tool_calls,
-                execution_time=total_time / len(shared_context.agent_contributions)
+                execution_time=round(agent_busy.get(agent_id, 0.0), 3)
             ))
 
         # 提取关键发现
@@ -227,12 +259,23 @@ class SessionSummary:
                 ))
 
         # 性能指标
+        # 并行效率 = 各 Agent 忙碌时长之和 / (墙钟总耗时 × Agent 数)
+        # 语义是"平均每个 Agent 的时间利用率"：
+        # 全员全程并行 → 接近 1.0；N 个 Agent 完全串行 → 接近 1/N。
+        # 分母为 0 时给 0.0（而不是编一个看起来合理的常数）。
+        agent_count = len(shared_context.agent_contributions)
+        total_busy = sum(agent_busy.values())
+        if total_time > 0 and agent_count > 0:
+            parallel_efficiency = max(0.0, min(1.0, total_busy / (total_time * agent_count)))
+        else:
+            parallel_efficiency = 0.0
+
+        # information_coverage / redundancy / speedup_vs_single 需要 ground truth
+        # 或单 Agent 基线对照才能算，当前没有，因此传 None 表示"未测量"
         performance = PerformanceMetrics(
             total_time=total_time,
-            agent_count=len(shared_context.agent_contributions),
-            parallel_efficiency=0.8,  # TODO: 实际计算
-            information_coverage=0.9,  # TODO: 实际计算
-            redundancy=0.15  # TODO: 实际计算
+            agent_count=agent_count,
+            parallel_efficiency=parallel_efficiency,
         )
 
         return cls(
@@ -246,7 +289,8 @@ class SessionSummary:
             events_count=len(shared_context.events),
             final_answer=final_answer,
             key_findings=key_findings,
-            lessons_learned=[],  # TODO: 从协作过程中提取
+            # 经验教训需要单独的结构化抽取逻辑，当前未实现，因此为空列表（不是占位假数据）
+            lessons_learned=[],
             performance=performance
         )
 
@@ -280,21 +324,6 @@ class SessionSummaryManager:
             logger.info(f"Saved session summary: {summary.session_id}")
         except Exception as e:
             logger.error(f"Error saving session summary: {e}")
-
-    def load_summary(self, session_id: str) -> Optional[SessionSummary]:
-        """加载会话总结（简化实现）"""
-        summary_path = self._get_summary_path(session_id)
-
-        if not summary_path.exists():
-            return None
-
-        try:
-            # 这里可以实现从 Markdown 解析回 SessionSummary
-            # 简化版直接返回 None
-            return None
-        except Exception as e:
-            logger.error(f"Error loading session summary: {e}")
-            return None
 
     def search_similar_sessions(
         self,

@@ -54,13 +54,22 @@ class ResearchAgent(BaseAgent, SkillRegistryMixin):
         ])
 
     def register_tools(self):
-        """注册所有 9 个 Skills（共享实现，来自 SkillRegistryMixin）"""
+        """按 YAML 白名单注册本 Agent 的 Skills（共享实现，来自 SkillRegistryMixin）"""
         self.register_all_skills()
 
 
     def get_system_prompt(self) -> str:
         """获取系统提示词"""
-        return """你是专业的医学研究 Agent（ResearchAgent）。你的职责是：
+        # 可用 Skills 由注册表动态渲染，与 YAML 白名单同源（单一来源）
+        strategy_lines = []
+        if self.has_skill("clinical_guideline"):
+            strategy_lines.append("- 优先使用 `clinical_guideline`（快速获取权威指南）")
+        if self.has_skill("deep_research"):
+            strategy_lines.append("- 需要最新信息或复杂问题时使用 `deep_research`")
+        if self.has_skill("search_knowledge"):
+            strategy_lines.append("- 可以结合其他 Skills（如 `search_knowledge`）补充信息")
+        strategies = "\n".join(strategy_lines)
+        return f"""你是专业的医学研究 Agent（ResearchAgent）。你的职责是：
 1. 检索相关医学文献和临床指南
 2. 提取关键证据支持诊疗决策
 3. 验证其他 Agent 的医学结论
@@ -72,21 +81,11 @@ class ResearchAgent(BaseAgent, SkillRegistryMixin):
 - 提供文献来源和发表年份
 - 明确指出信息的局限性和适用范围
 
-**可用 Skills（9个）**：
-1. search_knowledge: 搜索医学知识库
-2. recommend_lifestyle: 生活方式建议
-3. assess_risk: 评估症状风险等级
-4. analyze_symptoms: 分析症状模式
-5. disease_code: 查询ICD-10疾病编码
-6. clinical_guideline: 检索临床指南和诊疗规范（权威指南、诊断标准）
-7. deep_research: 深度医学研究（网络搜索 + 知识库 + 证据综合，适用于最新信息、复杂问题）
-8. search_history: 搜索当前会话历史（短期记忆）
-9. search_similar_cases: 搜索相似历史案例（长期记忆）
+**可用 Skills（{len(self.skill_registry.get_all())} 个，由注册表自动渲染，与 YAML 白名单同源）**：
+{self.render_available_skills()}
 
 **Skills 使用策略**：
-- 优先使用 `clinical_guideline`（快速获取权威指南）
-- 需要最新信息或复杂问题时使用 `deep_research`
-- 可以结合其他 Skills（如 `search_knowledge`）补充信息
+{strategies}
 - 最多 2-3 次 Skill 调用
 - 综合多个信息来源，提供证据等级
 

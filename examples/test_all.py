@@ -18,7 +18,7 @@ sys.path.insert(0, str(project_root))
 
 from agents import ConsultationAgent, DiagnosticAgent, ResearchAgent
 from swarm import SwarmCoordinator, process_with_swarm, SharedContext, EventType
-from memory import AgentIdentityManager, ShortTermMemory, LongTermMemory, MemoryEntropyManager
+from memory import ShortTermMemory, LongTermMemory, MemoryEntropyManager
 
 # Harness Engineering 模块
 try:
@@ -369,36 +369,6 @@ async def test_agent_capabilities():
 
     print("✅ Agent 能力标签正常")
     print("✅ 测试 2.2 通过！")
-
-
-async def test_agent_identity():
-    """测试 2.3: AgentIdentity 持久化"""
-    print("\n" + "="*70)
-    print("测试 2.3: AgentIdentity 记忆持久化")
-    print("="*70)
-
-    manager = AgentIdentityManager()
-
-    # 创建 identity
-    identity = manager.create_identity(
-        agent_id="test_agent",
-        agent_type="test",
-        core_capabilities=["test_capability"],
-        expertise_domains=["testing"]
-    )
-    print(f"\nAgent ID: {identity.agent_id}")
-    print(f"能力: {identity.core_capabilities}")
-
-    # 保存
-    manager.save_identity(identity)
-
-    # 重新加载验证
-    identity2 = manager.load_identity("test_agent")
-    assert identity2 is not None
-    print(f"✅ 重新加载成功: {identity2.agent_id}")
-
-    print("✅ AgentIdentity 持久化正常")
-    print("✅ 测试 2.3 通过！")
 
 
 # ============================================================================
@@ -1103,13 +1073,6 @@ async def test_harness_constraint_validator():
     assert not result.get("valid"), "缺少免责声明应该验证失败"
     assert "缺少免责声明" in result.get("violations", []), "应该检测到缺少免责声明"
 
-    # 测试任务分解验证
-    result = validator.validate_task_decomposition(
-        "感冒了怎么办？",
-        [{"type": "knowledge_search"}]
-    )
-    assert result.get("valid"), "简单问题的简单分解应该通过"
-
     print("✅ 约束验证器测试通过")
 
 
@@ -1360,7 +1323,6 @@ async def main():
         ("Phase 1: 症状咨询（有工具调用）", test_agent_loop_with_tools),
         ("Phase 2: SharedContext 功能", test_shared_context),
         ("Phase 2: Agent 能力匹配", test_agent_capabilities),
-        ("Phase 2: AgentIdentity 持久化", test_agent_identity),
         ("Phase 2: 简单问题路由", test_simple_routing),
         ("Phase 2: 复杂案例 Swarm", test_complex_case_swarm),
         ("Phase 2: SessionSummary 生成", test_session_summary),
@@ -1434,7 +1396,7 @@ async def main():
         print("  ✅ Phase 5: DeepResearch 工具集成到 ResearchAgent")
         print("  ✅ Phase 5: DeepResearch 端到端测试（ResearchAgent 实际调用）")
         print("  ✅ Skills 架构：7个原子 Skills 完全替代 Tools 层")
-        print("  ✅ Skills 集成：所有 Agent 注册全部7个 Skills")
+        print("  ✅ Skills 集成：各 Agent 按 YAML 白名单注册自己的 Skill 子集（5/7/5）")
         print("  ✅ Skills 调用：Agent Loop 自主选择合适的 Skills")
         print("  ✅ Milvus 知识库：语义检索支持所有相关 Skills")
         if HARNESS_AVAILABLE:

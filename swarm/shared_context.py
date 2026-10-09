@@ -12,6 +12,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Dict, Any, List, Optional
 import uuid
+import threading
 from collections import defaultdict
 
 from .events import Event, EventType
@@ -117,13 +118,19 @@ class SharedContext:
         # 工作记忆池（临时数据）
         self.memory_pool: Dict[str, Any] = {}
 
+        # 并发保护：单请求内多个 Worker 协程会并发读写同一块黑板。
+        # 使用可重入锁（RLock）保证每个变异操作的原子性；
+        # 嵌套调用 publish_event 时同一线程可重复加锁，不会死锁。
+        self._lock = threading.RLock()
+
     def publish_event(self, event: Event):
         """
         发布事件
 
         Agent 通过发布事件来通知其他 Agent
         """
-        self.events.append(event)
+        with self._lock:
+            self.events.append(event)
 
     def get_events(
         self,
@@ -151,18 +158,19 @@ class SharedContext:
 
     def add_subtask(self, subtask: SubTask):
         """添加子任务"""
-        self.task_decomposition[subtask.id] = subtask
+        with self._lock:
+            self.task_decomposition[subtask.id] = subtask
 
-        # 发布事件
-        self.publish_event(Event(
-            type=EventType.TASK_DECOMPOSED,
-            source_agent="lead_agent",
-            data={
-                "subtask_id": subtask.id,
-                "type": subtask.type,
-                "assigned_agent": subtask.assigned_agent
-            }
-        ))
+            # 发布事件
+            self.publish_event(Event(
+                type=EventType.TASK_DECOMPOSED,
+                source_agent="lead_agent",
+                data={
+                    "subtask_id": subtask.id,
+                    "type": subtask.type,
+                    "assigned_agent": subtask.assigned_agent
+                }
+            ))
 
     def get_subtask(self, subtask_id: str) -> Optional[SubTask]:
         """获取子任务"""
@@ -190,14 +198,15 @@ class SharedContext:
             return False
 
         try:
-            subtask.start()
+            with self._lock:
+                subtask.start()
 
-            # 发布事件
-            self.publish_event(Event(
-                type=EventType.SUBTASK_STARTED,
-                source_agent=subtask.assigned_agent,
-                data={"subtask_id": subtask_id}
-            ))
+                # 发布事件
+                self.publish_event(Event(
+                    type=EventType.SUBTASK_STARTED,
+                    source_agent=subtask.assigned_agent,
+                    data={"subtask_id": subtask_id}
+                ))
 
             return True
         except ValueError:
@@ -219,26 +228,27 @@ class SharedContext:
             raise ValueError(f"SubTask {subtask_id} not assigned to {agent_id}")
 
         # 完成子任务
-        subtask.complete(result)
+        with self._lock:
+            subtask.complete(result)
 
-        # 添加贡献
-        contribution = Contribution(
-            agent_id=agent_id,
-            subtask_id=subtask_id,
-            result=result,
-            confidence=confidence
-        )
-        self.agent_contributions[agent_id].append(contribution)
+            # 添加贡献
+            contribution = Contribution(
+                agent_id=agent_id,
+                subtask_id=subtask_id,
+                result=result,
+                confidence=confidence
+            )
+            self.agent_contributions[agent_id].append(contribution)
 
-        # 发布事件
-        self.publish_event(Event(
-            type=EventType.SUBTASK_COMPLETED,
-            source_agent=agent_id,
-            data={
-                "subtask_id": subtask_id,
-                "result_summary": str(result)[:200]  # 简短摘要
-            }
-        ))
+            # 发布事件
+            self.publish_event(Event(
+                type=EventType.SUBTASK_COMPLETED,
+                source_agent=agent_id,
+                data={
+                    "subtask_id": subtask_id,
+                    "result_summary": str(result)[:200]  # 简短摘要
+                }
+            ))
 
     def get_contributions(
         self,
@@ -281,14 +291,15 @@ class SharedContext:
 
     def set_data(self, key: str, value: Any):
         """设置共享数据"""
-        self.data[key] = value
+        with self._lock:
+            self.data[key] = value
 
-        # 发布事件
-        self.publish_event(Event(
-            type=EventType.CONTEXT_UPDATED,
-            source_agent="system",
-            data={"key": key}
-        ))
+            # 发布事件
+            self.publish_event(Event(
+                type=EventType.CONTEXT_UPDATED,
+                source_agent="system",
+                data={"key": key}
+            ))
 
     def get_data(self, key: str, default: Any = None) -> Any:
         """获取共享数据"""

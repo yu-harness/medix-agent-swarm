@@ -4,21 +4,30 @@ Search Knowledge Skill
 """
 from typing import Dict, Any
 from loguru import logger
+import threading
 
 # 全局知识库实例（避免重复加载模型）
 _kb_instance = None
+# Skill 现由 SkillRegistry 丢进线程池并发执行，懒加载必须加锁；
+# 否则多线程会重复创建实例（重复加载向量模型 + 重复打开 Milvus Lite 文件句柄）
+_kb_lock = threading.RLock()
 
 
 def get_knowledge_base():
-    """获取知识库单例"""
+    """获取知识库单例（线程安全，双重检查锁定）"""
     global _kb_instance
     if _kb_instance is None:
-        from knowledge.milvus_kb import MedicalKnowledgeBase
-        _kb_instance = MedicalKnowledgeBase()
+        with _kb_lock:
+            if _kb_instance is None:
+                from knowledge.milvus_kb import MedicalKnowledgeBase
+                _kb_instance = MedicalKnowledgeBase()
     return _kb_instance
 
 
-async def search_knowledge(query: str, max_results: int = 8) -> Dict[str, Any]:
+# 注意：函数体全为同步阻塞调用（Milvus 检索 + 向量模型推理），没有任何 await。
+# 声明为同步函数后，SkillRegistry 会自动丢进线程池执行，不阻塞 event loop；
+# 切勿改回 async def，否则阻塞会串行化整个 Swarm。
+def search_knowledge(query: str, max_results: int = 8) -> Dict[str, Any]:
     """
     搜索医学知识库
 
@@ -99,19 +108,16 @@ def format_results(results: list) -> str:
     return "\n".join(output)
 
 
-# 同步版本（如果需要）
+# 同步版本（函数本身已是同步，直接透传）
 def search_knowledge_sync(query: str, max_results: int = 5) -> Dict[str, Any]:
     """同步版本的搜索知识库"""
-    import asyncio
-    return asyncio.run(search_knowledge(query, max_results))
+    return search_knowledge(query, max_results)
 
 
 if __name__ == "__main__":
     # 测试
-    import asyncio
-
     test_query = "高血压的治疗方法"
-    result = asyncio.run(search_knowledge(test_query))
+    result = search_knowledge(test_query)
 
     print("=" * 70)
     print(f"查询: {test_query}")

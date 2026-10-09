@@ -88,12 +88,11 @@ class SkillRegistry:
                 # Async skill
                 result = await skill['function'](**kwargs)
             else:
-                # Sync skill - run in executor
-                loop = asyncio.get_event_loop()
-                result = await loop.run_in_executor(
-                    None,
-                    lambda: skill['function'](**kwargs)
-                )
+                # Sync skill - run in a worker thread。
+                # 必须用 asyncio.to_thread：它会把当前 contextvars（如 trace_id）
+                # 复制进工作线程，让 Skill 线程里的日志也能携带调用方的 trace_id。
+                # 直接 run_in_executor 不会复制上下文，观测会被截断在 agent 层。
+                result = await asyncio.to_thread(skill['function'], **kwargs)
 
             logger.debug(f"Skill {name} completed successfully")
             return result

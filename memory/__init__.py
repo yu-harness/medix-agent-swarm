@@ -10,10 +10,19 @@
 # 短期和长期记忆
 from .short_term import (
     ShortTermMemory,
-    ConversationHistory
+    ConversationHistory,
+    fit_history_to_budget,
+    estimate_tokens,
 )
 from .long_term import (
     LongTermMemory
+)
+
+# 运行摘要（短期记忆 L2：触发式语义摘要）
+from .running_summary import (
+    RunningSummaryManager,
+    split_history_by_budget,
+    generate_summary,
 )
 
 # Harness Engineering: 熵管理
@@ -21,13 +30,6 @@ from .entropy_manager import (
     MemoryEntropyManager
 )
 
-# 本地 Markdown 持久化
-from .agent_identity import (
-    AgentIdentity,
-    AgentIdentityManager,
-    CollaborationRecord,
-    ToolUsageStats
-)
 from .session_summary import (
     SessionSummary,
     SessionSummaryManager,
@@ -42,14 +44,16 @@ __all__ = [
     'ShortTermMemory',
     'ConversationHistory',
     'LongTermMemory',
+    # token 预算（L1）
+    'fit_history_to_budget',
+    'estimate_tokens',
+    # 运行摘要（L2）
+    'RunningSummaryManager',
+    'split_history_by_budget',
+    'generate_summary',
     # Harness Engineering: 熵管理
     'MemoryEntropyManager',
-    # 本地持久化类
-    'AgentIdentity',
-    'AgentIdentityManager',
-    'LearningRecord',
-    'CollaborationRecord',
-    'ToolUsageStats',
+    # 会话总结（本地 Markdown 持久化）
     'SessionSummary',
     'SessionSummaryManager',
     'AgentParticipation',

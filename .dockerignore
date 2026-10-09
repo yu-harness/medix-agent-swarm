@@ -1,0 +1,27 @@
+# 密钥与本地配置：严禁进入镜像层
+.env
+config.py
+
+# 开发/评测产物：不进运行镜像
+eval/
+examples/
+tests/
+research/
+validation/
+docs/
+scripts/
+*.log
+
+# 运行时数据：用 volume 挂载（见 docker-compose.yml）
+knowledge/data/
+memory/swarm/session_summaries/
+memory/patient_profiles/
+memory/**/*.json
+*.arrow
+
+# VCS / 缓存
+.git/
+.gitignore
+__pycache__/
+*.pyc
+.cache/

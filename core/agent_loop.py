@@ -7,16 +7,21 @@ Agent循环引擎
 import uuid
 import json
 import re
+import time
 from typing import Dict, Any, List, Optional
 from loguru import logger
 
 from .state_manager import StateManager, TaskStatus
-from .llm_client import LLMResponse
+from .llm_client import LLMResponse, StreamStats, llm_safe_fallback_response
 
 # Harness Engineering: 约束验证和自动修复
 try:
     from constraints import ConstraintValidator
-    from constraints.validator import is_constraint_enforce_enabled
+    from constraints.validator import (
+        detect_high_risk_signals,
+        is_constraint_enforce_enabled,
+        max_risk_level,
+    )
     from validation import AutoFixer
     CONSTRAINTS_ENABLED = True
 except ImportError:
@@ -24,6 +29,12 @@ except ImportError:
     CONSTRAINTS_ENABLED = False
 
     def is_constraint_enforce_enabled() -> bool:  # type: ignore
+        return False
+
+    def max_risk_level(*levels):  # type: ignore
+        return "low"
+
+    def detect_high_risk_signals(text):  # type: ignore
         return False
 
 
@@ -117,25 +128,40 @@ class AgentLoop:
         self.max_tool_calls = max_tool_calls
         self.state_manager = StateManager()
         self.short_term_memory = short_term_memory
-        self.tool_call_count = 0
+        # 注意：单次运行的计数（tool_call_count）不挂在 self 上。
+        # AgentLoop 是 Worker 级共享实例（Coordinator 走进程级缓存），若计数挂在 self，
+        # 并发请求会在 await 让出后互相清零/累加，导致 max_tool_calls 限额失效
+        # （表现为：误杀——只用 1 次就被强制收尾；或漏拦——突破上限拖慢响应）。
+        # 因此 self 上只放只读配置，随任务变化的状态一律下沉到 run() 的局部变量。
 
-        # Harness Engineering: 约束验证器和自动修复器（默认 warn；CONSTRAINT_ENFORCE=1 时硬拦）
+        # Harness Engineering: 约束验证器和自动修复器（默认硬拦；CONSTRAINT_ENFORCE=0 退回 warn）
         self.validator = ConstraintValidator() if CONSTRAINTS_ENABLED else None
         self.auto_fixer = AutoFixer() if CONSTRAINTS_ENABLED else None
         if CONSTRAINTS_ENABLED:
             mode = "enforce" if is_constraint_enforce_enabled() else "warn"
             logger.debug(f"✅ Constraint validation enabled (mode={mode})")
 
-    async def run(self, agent, input_data: Dict[str, Any], session_id: Optional[str] = None) -> Dict[str, Any]:
+    async def run(
+        self,
+        agent,
+        input_data: Dict[str, Any],
+        session_id: Optional[str] = None,
+        on_delta: Optional[Any] = None,
+        stream: bool = False,
+    ) -> Dict[str, Any]:
         """
         执行Agent循环
 
         Args:
             agent: Agent实例
             input_data: 输入数据
+            session_id: 会话 ID
+            on_delta: 正文增量回调（同步或协程函数均可）；传入即启用流式，
+                用于把 token 实时推给前端
+            stream: 为 True 时也走流式（只取 TTFT 指标、不对外吐字）
 
         Returns:
-            最终结果
+            最终结果；流式开启时额外带 llm_ttft_ms 与 answer_ttft_ms
         """
         task_id = str(uuid.uuid4())
         state = self.state_manager.create_state(
@@ -145,8 +171,19 @@ class AgentLoop:
             max_iterations=self.max_iterations
         )
 
-        # 重置计数
-        self.tool_call_count = 0
+        # 单次运行的计数：局部变量，天然与其他并发 run 隔离
+        tool_call_count = 0
+        # 本轮观察到的最高风险等级（来自 Skill 返回的结构化 risk_level）。
+        # 这是医疗安全判断的首要依据，不用"模型输出里有没有写胸痛"来决定。
+        observed_risk = "low"
+
+        # 观测：本次运行的耗时打点（配合 trace_id 排查每次 LLM/Skill 调用的开销）
+        llm_calls_ms: List[float] = []
+        skill_calls_ms: List[float] = []
+        # 流式：每一轮的首 token 时间（TTFT），以及最终答案那一轮的值
+        llm_ttft_ms: List[float] = []
+        answer_ttft_ms: Optional[float] = None
+        stream_enabled = bool(stream or on_delta is not None)
 
         logger.info(f"Starting Agent Loop for {agent.agent_id}, task_id={task_id}")
 
@@ -183,11 +220,31 @@ class AgentLoop:
 
                 try:
                     # 调用 LLM（可能返回 tool_calls）
-                    llm_response: LLMResponse = await agent.llm_client.chat_with_tools(
-                        messages=messages,
-                        tools=tools_openai_format,
-                        tool_choice="auto",
-                        temperature=agent.config.get('temperature', 0.7)
+                    t_llm = time.perf_counter()
+                    llm_args = {
+                        "messages": messages,
+                        "tools": tools_openai_format,
+                        "tool_choice": "auto",
+                        "temperature": agent.config.get('temperature', 0.7),
+                        "fallback": llm_safe_fallback_response(),
+                    }
+                    if stream_enabled:
+                        # 流式：正文增量实时交给 on_delta，并取回本轮 TTFT
+                        stream_stats = StreamStats()
+                        llm_response: LLMResponse = await agent.llm_client.chat_with_tools_stream(
+                            on_delta=on_delta,
+                            stats=stream_stats,
+                            **llm_args,
+                        )
+                        llm_ttft_ms.append(
+                            stream_stats.ttft_ms
+                            if stream_stats.ttft_ms is not None
+                            else stream_stats.first_chunk_ms
+                        )
+                    else:
+                        llm_response = await agent.llm_client.chat_with_tools(**llm_args)
+                    llm_calls_ms.append(
+                        round((time.perf_counter() - t_llm) * 1000, 1)
                     )
 
                     # 记录中间结果
@@ -206,7 +263,7 @@ class AgentLoop:
                     # 情况1: LLM 返回 tool_calls，执行 Skills
                     if llm_response.has_tool_calls():
                         # 硬性限制：检查是否已达到最大调用次数
-                        if self.tool_call_count >= self.max_tool_calls:
+                        if tool_call_count >= self.max_tool_calls:
                             logger.warning(f"⚠️ 已达到最大 Skill 调用次数限制 ({self.max_tool_calls})，强制生成最终答案")
                             # 强制要求 LLM 提供最终答案
                             messages.append({
@@ -215,7 +272,7 @@ class AgentLoop:
                             })
                             continue
 
-                        logger.info(f"LLM requested {len(llm_response.tool_calls)} tool calls (当前已调用 {self.tool_call_count}/{self.max_tool_calls})")
+                        logger.info(f"LLM requested {len(llm_response.tool_calls)} tool calls (当前已调用 {tool_call_count}/{self.max_tool_calls})")
 
                         # 添加 assistant 消息（包含 tool_calls）
                         messages.append(self._create_assistant_message_with_tools(llm_response))
@@ -232,8 +289,8 @@ class AgentLoop:
                         # 执行每个 Skill 调用
                         for tool_call in llm_response.tool_calls:
                             # 增加计数
-                            self.tool_call_count += 1
-                            logger.debug(f"Executing: {tool_call.name}({tool_call.arguments}) - 第 {self.tool_call_count} 次调用")
+                            tool_call_count += 1
+                            logger.debug(f"Executing: {tool_call.name}({tool_call.arguments}) - 第 {tool_call_count} 次调用")
 
                             # Harness Engineering: 验证调用（warn 只记日志；enforce 不执行并回写拒绝原因）
                             blocked = False
@@ -272,10 +329,27 @@ class AgentLoop:
                             if blocked:
                                 continue
 
+                            t_skill = time.perf_counter()
                             tool_result = await agent.execute_tool(
                                 tool_name=tool_call.name,
                                 arguments=tool_call.arguments
                             )
+                            skill_calls_ms.append(
+                                round((time.perf_counter() - t_skill) * 1000, 1)
+                            )
+
+                            # 采集结构化风险等级：assess_risk 等 Skill 会返回 risk_level 字段。
+                            # 取本轮观察到的最高等级（保守取最大值）。
+                            if isinstance(tool_result, dict) and tool_result.get("risk_level"):
+                                new_risk = max_risk_level(
+                                    observed_risk, tool_result.get("risk_level")
+                                )
+                                if new_risk != observed_risk:
+                                    logger.info(
+                                        f"Risk level updated: {observed_risk} -> {new_risk} "
+                                        f"(from {tool_call.name})"
+                                    )
+                                observed_risk = new_risk
 
                             # 添加结果消息（紧凑格式化，避免把整份工具返回塞进上下文）
                             messages.append(
@@ -302,6 +376,9 @@ class AgentLoop:
                     else:
                         logger.info(f"LLM provided final response (no tool calls)")
 
+                        # 流式：最终答案这一轮的 TTFT，才是用户感知到的响应时间
+                        answer_ttft_ms = llm_ttft_ms[-1] if llm_ttft_ms else None
+
                         # Harness Engineering: 验证和修复输出
                         final_answer = llm_response.content
 
@@ -321,10 +398,20 @@ class AgentLoop:
                             })
                             continue
 
+                        # 最终判定：把「用户输入」的高危信号也纳入。
+                        # 用户说"胸痛"但全程没调 assess_risk 时，工具侧 risk_level 仍是 low，
+                        # 只依赖工具侧会漏判——所以输入端也要扫一遍（扫输入，不扫模型输出）。
+                        input_text = input_data.get('question') or ""
+                        effective_risk = max_risk_level(
+                            observed_risk,
+                            "high" if detect_high_risk_signals(input_text) else "low",
+                        )
+
                         if self.validator and final_answer:
                             validation_result = self.validator.validate_output(
                                 agent.agent_id,
-                                final_answer
+                                final_answer,
+                                risk_level=effective_risk,
                             )
 
                             if not validation_result.get("valid"):
@@ -336,7 +423,8 @@ class AgentLoop:
                                 if self.auto_fixer and validation_result.get("auto_fixable"):
                                     fixed_answer = self.auto_fixer.fix_output(
                                         final_answer,
-                                        validation_result.get("auto_fixable", [])
+                                        validation_result.get("auto_fixable", []),
+                                        risk_level=effective_risk,
                                     )
                                     if fixed_answer != final_answer:
                                         logger.info("🔧 输出已自动修复")
@@ -354,7 +442,19 @@ class AgentLoop:
                         result = {
                             'answer': final_answer,
                             'iterations': state.iteration,
-                            'agent_id': agent.agent_id
+                            'agent_id': agent.agent_id,
+                            'tool_calls': tool_call_count,
+                            # 结构化风险等级：供上层（日志/告警/审计）使用
+                            'risk_level': effective_risk,
+                            # 观测：本次运行的耗时打点
+                            'llm_calls': len(llm_calls_ms),
+                            'llm_total_ms': round(sum(llm_calls_ms), 1),
+                            'skill_calls': len(skill_calls_ms),
+                            'skill_total_ms': round(sum(skill_calls_ms), 1),
+                            # 流式指标：streamed=False 时 TTFT 不可得（用户要等整段生成完）
+                            'streamed': stream_enabled,
+                            'llm_ttft_ms': llm_ttft_ms,
+                            'answer_ttft_ms': answer_ttft_ms,
                         }
 
                         # 让 Agent 进行结果后处理（如提取建议等）
@@ -386,15 +486,25 @@ class AgentLoop:
                     })
 
                     # 调用 LLM（禁用 function calling）
+                    t_final = time.perf_counter()
                     final_response = await agent.llm_client.chat_with_tools(
                         messages=messages,
                         tools=None,
-                        temperature=0.7
+                        temperature=0.7,
+                        fallback=llm_safe_fallback_response(),
+                    )
+                    llm_calls_ms.append(
+                        round((time.perf_counter() - t_final) * 1000, 1)
                     )
 
                     result = {
                         'answer': final_response.content or '抱歉，未能完成任务',
                         'iterations': state.iteration,
+                        'tool_calls': tool_call_count,
+                        'llm_calls': len(llm_calls_ms),
+                        'llm_total_ms': round(sum(llm_calls_ms), 1),
+                        'skill_calls': len(skill_calls_ms),
+                        'skill_total_ms': round(sum(skill_calls_ms), 1),
                         'warning': 'max_iterations_reached'
                     }
 
@@ -415,6 +525,11 @@ class AgentLoop:
                     result = {
                         'answer': '抱歉，系统在处理您的问题时遇到了问题。建议您简化问题或稍后重试。',
                         'iterations': state.iteration,
+                        'tool_calls': tool_call_count,
+                        'llm_calls': len(llm_calls_ms),
+                        'llm_total_ms': round(sum(llm_calls_ms), 1),
+                        'skill_calls': len(skill_calls_ms),
+                        'skill_total_ms': round(sum(skill_calls_ms), 1),
                         'warning': 'max_iterations_reached',
                         'error': str(e)
                     }
@@ -427,6 +542,10 @@ class AgentLoop:
             logger.error(f"Agent Loop failed: {e}")
             state.mark_failed(str(e))
             raise
+        finally:
+            # StateManager 同样是共享实例：任务结束即回收，
+            # 否则 states 字典随请求数单调增长（内存泄漏）。
+            self.state_manager.delete_state(task_id)
 
     def _initialize_messages(self, agent, input_data: Dict[str, Any], session_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """初始化消息列表，包含历史对话上下文"""

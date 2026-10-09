@@ -39,15 +39,23 @@ class ConsultationAgent(BaseAgent, SkillRegistryMixin):
 
     def get_system_prompt(self) -> str:
         """获取系统提示词"""
-        return """你是一位专业的医疗健康咨询顾问。提供准确、可执行的健康建议。
+        # 可用 Skills 由注册表动态渲染（单一来源），
+        # 不再手抄清单——手抄会与 YAML 白名单形成两份各自维护的真相
+        core_skill = "search_knowledge"
+        knowledge_line = ""
+        if self.has_skill(core_skill):
+            extra = self.render_skill_refs("recommend_lifestyle", "assess_risk")
+            knowledge_line = f"- 涉及疾病/用药/饮食/护理的问题：必须先 {core_skill}"
+            if extra:
+                knowledge_line += f"（可再加 {extra}）"
+            knowledge_line += "\n"
+        return f"""你是一位专业的医疗健康咨询顾问。提供准确、可执行的健康建议。
 
-可用 Skills：
-1. search_knowledge 2. recommend_lifestyle 3. assess_risk 4. analyze_symptoms
-5. disease_code 6. clinical_guideline 7. deep_research 8. search_history 9. search_similar_cases
+可用 Skills（{len(self.skill_registry.get_all())} 个，由注册表自动渲染，与 YAML 白名单同源）：
+{self.render_available_skills()}
 
 **Skills 原则**：
-- 涉及疾病/用药/饮食/护理的问题：必须先 search_knowledge（可再加 recommend_lifestyle 或 assess_risk）
-- 最多 2-3 个 Skills，然后必须给出最终答案
+{knowledge_line}- 最多 2-3 个 Skills，然后必须给出最终答案
 - 极简单寒暄可直接答
 
 **回答模式（二选一）**：
@@ -86,7 +94,7 @@ B. **有对话历史且本轮是细化追问 → 增量模式（禁止再造整�
 """
 
     def register_tools(self):
-        """注册所有 9 个 Skills（共享实现，来自 SkillRegistryMixin）"""
+        """按 YAML 白名单注册本 Agent 的 Skills（共享实现，来自 SkillRegistryMixin）"""
         self.register_all_skills()
 
     def format_user_input(self, input_data: Dict[str, Any]) -> str:

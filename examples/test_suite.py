@@ -91,15 +91,35 @@ class TestSkillRegistry(unittest.TestCase):
         self.assertEqual(result.get("sum"), 5)
 
     def test_agent_skills_registered(self):
+        """注册应按 YAML 白名单裁剪（而非全量注册 + 运行时警告）。"""
         from agents import ConsultationAgent
+        from constraints.validator import get_allowed_tools
+
         agent = ConsultationAgent()
         skills = agent.skill_registry.get_all()
-        self.assertGreaterEqual(len(skills), 7)
+        allowed = set(get_allowed_tools("consultation_agent"))
+
+        # 注册的 Skill 应恰好等于白名单：不多（越权工具不该出现在工具列表里）
+        self.assertEqual(set(skills), allowed)
+        self.assertNotIn("analyze_symptoms", skills)
+        self.assertNotIn("deep_research", skills)
+
+        # 工具列表与注册表一致
         tools = agent.get_tools_for_llm()
         self.assertEqual(len(tools), len(skills))
-        names = {t["function"]["name"] for t in tools}
-        for expected in ("search_knowledge", "assess_risk", "analyze_symptoms"):
-            self.assertIn(expected, names)
+
+    def test_agent_prompt_matches_registry(self):
+        """system prompt 里的 Skills 必须由注册表渲染，不能另抄一份清单。"""
+        from agents import ConsultationAgent
+
+        agent = ConsultationAgent()
+        rendered = agent.render_available_skills()
+        for name in agent.skill_registry.get_all():
+            self.assertIn(name, rendered)
+        # 未注册的 Skill 不应出现在提示词中
+        self.assertNotIn("deep_research", rendered)
+        # 提示词确实被渲染进了 system prompt
+        self.assertIn(rendered.splitlines()[0], agent.get_system_prompt())
 
 
 class TestKnowledgeBase(unittest.TestCase):
@@ -157,17 +177,34 @@ class TestConstraintsAndAutoFixer(unittest.TestCase):
         result = self.validator.validate_tool_call("consultation_agent", "search_knowledge")
         self.assertTrue(result.get("valid"))
 
-    def test_tool_call_disallowed_warn_default(self):
+    def test_tool_call_disallowed_blocks_by_default(self):
+        """默认应硬拦：只警告不拦截的约束等于没有约束。"""
         import os
         old = os.environ.pop("CONSTRAINT_ENFORCE", None)
         try:
             result = self.validator.validate_tool_call("consultation_agent", "deep_research")
             self.assertFalse(result.get("valid"))
-            self.assertEqual(result.get("severity"), "warning")
+            self.assertEqual(result.get("severity"), "block")
             self.assertIn("请改用", result.get("reason", ""))
-            self.assertFalse(is_constraint_enforce_enabled())
+            self.assertTrue(is_constraint_enforce_enabled())
         finally:
             if old is not None:
+                os.environ["CONSTRAINT_ENFORCE"] = old
+
+    def test_tool_call_disallowed_warn_opt_out(self):
+        """显式 CONSTRAINT_ENFORCE=0 时退回 warn 模式（用于评估影响面）。"""
+        import os
+        old = os.environ.get("CONSTRAINT_ENFORCE")
+        os.environ["CONSTRAINT_ENFORCE"] = "0"
+        try:
+            result = self.validator.validate_tool_call("consultation_agent", "deep_research")
+            self.assertFalse(result.get("valid"))
+            self.assertEqual(result.get("severity"), "warning")
+            self.assertFalse(is_constraint_enforce_enabled())
+        finally:
+            if old is None:
+                os.environ.pop("CONSTRAINT_ENFORCE", None)
+            else:
                 os.environ["CONSTRAINT_ENFORCE"] = old
 
     def test_tool_call_disallowed_enforce(self):
@@ -190,6 +227,63 @@ class TestConstraintsAndAutoFixer(unittest.TestCase):
         self.assertFalse(result.get("valid"))
         self.assertIn("缺少免责声明", result.get("violations", []))
 
+    # ===== 医疗安全：risk_level 一等公民 =====
+
+    def test_high_risk_forces_emergency_guidance_even_without_keywords(self):
+        """核心用例：risk_level=high 时，即使回答里一个高危关键词都没有，也必须补就医提示。
+
+        这是"扫输出"方案的致命漏洞——用户说胸痛、模型没复述，旧逻辑就漏判了。
+        新逻辑依据结构化 risk_level，不受模型是否复述影响。
+        """
+        answer = "建议您多休息，清淡饮食，观察一下情况。"
+        result = self.validator.validate_output(
+            "diagnostic_agent", answer, risk_level="high"
+        )
+        self.assertFalse(result.get("valid"))
+        self.assertIn("高危情况未建议就医", result.get("violations", []))
+        self.assertIn("add_emergency_warning", result.get("auto_fixable", []))
+
+        fixed = self.fixer.fix_output(
+            answer, result.get("auto_fixable", []), risk_level="high"
+        )
+        self.assertIn("120", fixed)
+        self.assertIn("就医", fixed)
+
+    def test_emergency_level_also_forces_guidance(self):
+        """emergency 等级同样必须补提示。"""
+        answer = "请保持安静。"
+        result = self.validator.validate_output(
+            "diagnostic_agent", answer, risk_level="emergency"
+        )
+        self.assertIn("高危情况未建议就医", result.get("violations", []))
+
+    def test_low_risk_without_keywords_no_false_alarm(self):
+        """低风险且无高危关键词时不应误报（避免告警疲劳）。"""
+        answer = "建议多饮水、注意休息。如症状加重请及时就医。"
+        result = self.validator.validate_output(
+            "diagnostic_agent", answer, risk_level="low"
+        )
+        self.assertNotIn("高危情况未建议就医", result.get("violations", []))
+
+    def test_high_risk_already_has_guidance_not_flagged(self):
+        """回答里已有就医引导时不应重复告警。"""
+        answer = "您的情况需要尽快到医院就诊，必要时拨打120。"
+        result = self.validator.validate_output(
+            "diagnostic_agent", answer, risk_level="high"
+        )
+        self.assertNotIn("高危情况未建议就医", result.get("violations", []))
+
+    def test_risk_level_helpers_ordering(self):
+        """风险等级取最大值，且无法识别的等级降级为 low。"""
+        from constraints.validator import max_risk_level, normalize_risk_level
+
+        self.assertEqual(max_risk_level("low", "high", "medium"), "high")
+        self.assertEqual(max_risk_level("emergency", "low"), "emergency")
+        self.assertEqual(max_risk_level("low", "medium"), "medium")
+        self.assertEqual(normalize_risk_level("HIGH"), "high")
+        self.assertEqual(normalize_risk_level("unknown"), "low")
+        self.assertEqual(normalize_risk_level(None), "low")
+
     def test_autofix_disclaimer(self):
         fixed = self.fixer.fix_missing_disclaimer("高血压需要低盐饮食。")
         self.assertTrue("免责声明" in fixed or "仅供参考" in fixed)
@@ -198,10 +292,55 @@ class TestConstraintsAndAutoFixer(unittest.TestCase):
         fixed = self.fixer.fix_high_risk_warning("您的胸痛可能是心绞痛。")
         self.assertTrue("就医" in fixed or "120" in fixed)
 
-    def test_required_agents_high_risk(self):
-        agents = self.validator.get_required_agents("突然胸痛和呼吸困难")
-        self.assertIsInstance(agents, list)
+    # ===== Swarm 路由硬约束（高危必须含 diagnostic_agent）=====
 
+    def test_required_agents_rules(self):
+        """agent_selection_rules 是纯规则，不依赖 LLM 分解是否自觉。"""
+        from constraints.validator import get_required_agents
+
+        self.assertIn("diagnostic_agent", get_required_agents("突然胸痛和呼吸困难"))
+        self.assertIn("diagnostic_agent", get_required_agents("最近心悸、容易昏厥"))
+        self.assertIn("consultation_agent", get_required_agents("高血压饮食注意什么"))
+        self.assertIn("research_agent", get_required_agents("高血压最新诊疗指南"))
+
+    def test_enforce_required_agents_swarm_mode_adds_subtask(self):
+        """Swarm 模式下，高危问题即使只被 LLM 分给 consultation，也必须补上 diagnostic。"""
+        from swarm.swarm_coordinator import SwarmCoordinator
+
+        coord = SwarmCoordinator(enable_swarm=True)
+        subtasks = [
+            {"type": "consultation_agent_task", "description": "回答用户问题",
+             "assigned_agent": "consultation_agent"}
+        ]
+        out = coord._enforce_required_agents(subtasks, "突然胸痛和呼吸困难")
+        agents = {t["assigned_agent"] for t in out}
+        self.assertIn("diagnostic_agent", agents)
+        diag = [t for t in out if t["assigned_agent"] == "diagnostic_agent"][0]
+        self.assertIn("安全规则", diag["description"])
+
+    def test_enforce_required_agents_single_mode_reassigns(self):
+        """单 Agent 模式下，高危问题应把任务改派给 diagnostic_agent。"""
+        from swarm.swarm_coordinator import SwarmCoordinator
+
+        coord = SwarmCoordinator(enable_swarm=False)
+        subtasks = [
+            {"type": "consultation_agent_task", "description": "回答用户问题",
+             "assigned_agent": "consultation_agent"}
+        ]
+        out = coord._enforce_required_agents(subtasks, "突然胸痛和呼吸困难")
+        self.assertEqual(out[0]["assigned_agent"], "diagnostic_agent")
+
+    def test_enforce_required_agents_no_force_when_present(self):
+        """diagnostic 已在子任务里时，不应重复强制加入。"""
+        from swarm.swarm_coordinator import SwarmCoordinator
+
+        coord = SwarmCoordinator(enable_swarm=True)
+        subtasks = [
+            {"type": "diagnostic_agent_task", "description": "风险评估",
+             "assigned_agent": "diagnostic_agent"}
+        ]
+        out = coord._enforce_required_agents(subtasks, "突然胸痛和呼吸困难")
+        self.assertEqual(len(out), 1)
 
 class TestShortTermMemoryAndEntropy(unittest.TestCase):
     def test_short_term_memory(self):
@@ -214,6 +353,33 @@ class TestShortTermMemoryAndEntropy(unittest.TestCase):
         msgs = stm.get_recent_messages(sid, limit=10)
         self.assertEqual(len(msgs), 2)
         stm.clear_session(sid)
+
+    def test_session_ttl_expiry(self):
+        """空闲超过 TTL 的会话应被清除（sessions 原本只增不删，会 OOM）。"""
+        import time
+
+        ShortTermMemory._instance = None
+        stm = ShortTermMemory(storage_type="memory", session_ttl_seconds=1, max_sessions=100)
+        sid = "suite-ttl-001"
+        stm.create_session(sid)
+        stm.add_message(sid, "user", "我头痛")
+        self.assertIsNotNone(stm.get_session(sid))
+
+        time.sleep(1.2)
+        self.assertIsNone(stm.get_session(sid), "过期会话应返回 None 并被移除")
+
+    def test_session_max_sessions_lru(self):
+        """会话数超过上限时按最久未用淘汰，且稳态恰好等于上限（不多不少）。"""
+        ShortTermMemory._instance = None
+        stm = ShortTermMemory(storage_type="memory", session_ttl_seconds=0, max_sessions=5)
+
+        for i in range(12):
+            stm.create_session(f"suite-lru-{i}")
+
+        self.assertEqual(len(stm.sessions), 5, "应恰好保留 5 个（上限），不能是 6 个")
+        # 保留的应是最新的 5 个
+        self.assertIn("suite-lru-11", stm.sessions)
+        self.assertNotIn("suite-lru-0", stm.sessions)
 
     def test_entropy_dedup_compress(self):
         manager = MemoryEntropyManager()
@@ -262,7 +428,8 @@ class TestAgentLoopMaxToolCalls(unittest.IsolatedAsyncioTestCase):
     async def test_max_tool_calls_enforced(self):
         call_log: List[str] = []
 
-        async def fake_chat_with_tools(messages, tools=None, tool_choice="auto", temperature=0.7):
+        # **kwargs 兜底 agent_loop 传入的 fallback 等参数，避免调用签名漂移导致测试假失败
+        async def fake_chat_with_tools(messages, tools=None, tool_choice="auto", temperature=0.7, **kwargs):
             n_user_force = sum(
                 1 for m in messages
                 if m.get("role") == "user" and "信息检索" in str(m.get("content", ""))
@@ -303,8 +470,11 @@ class TestAgentLoopMaxToolCalls(unittest.IsolatedAsyncioTestCase):
         result = await loop.run(agent, {"question": "我头痛"}, session_id=None)
 
         self.assertIn("answer", result)
-        self.assertLessEqual(loop.tool_call_count, 2)
-        self.assertGreaterEqual(loop.tool_call_count, 1)
+        # 工具调用次数由本次 run() 的结果返回，不再挂在共享的 loop 实例上
+        # （挂在 self 上会被并发请求互相清零/累加，导致 max_tool_calls 限额失效）
+        self.assertIn("tool_calls", result)
+        self.assertLessEqual(result["tool_calls"], 2)
+        self.assertGreaterEqual(result["tool_calls"], 1)
         self.assertTrue(result["answer"])
 
 
@@ -314,7 +484,7 @@ class TestAgentLoopConstraintEnforce(unittest.IsolatedAsyncioTestCase):
         old = os.environ.get("CONSTRAINT_ENFORCE")
         os.environ["CONSTRAINT_ENFORCE"] = "1"
         try:
-            async def fake_chat_with_tools(messages, tools=None, tool_choice="auto", temperature=0.7):
+            async def fake_chat_with_tools(messages, tools=None, tool_choice="auto", temperature=0.7, **kwargs):
                 has_tool_result = any(m.get("role") == "tool" for m in messages)
                 if has_tool_result:
                     return LLMResponse(

@@ -10,6 +10,7 @@
 """
 import json
 import os
+import threading
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from loguru import logger
@@ -34,11 +35,16 @@ class MedicalKnowledgeBase:
     """医学知识库"""
 
     _instance = None
+    # Skill 现由线程池并发执行，单例的创建与初始化必须加锁，
+    # 否则并发首次调用会重复加载向量模型 / 重复创建 Milvus 连接
+    _instance_lock = threading.Lock()
 
     def __new__(cls, *args, **kwargs):
-        """实现单例模式"""
+        """实现单例模式（线程安全，双重检查锁定）"""
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
         return cls._instance
 
     def __init__(
@@ -55,10 +61,21 @@ class MedicalKnowledgeBase:
             collection_name: Collection 名称
             embedding_model: Embedding 模型名称或本地路径
         """
-        # 防止重复初始化
-        if hasattr(self, '_initialized'):
-            return
+        # 防止重复初始化：锁覆盖整个初始化过程，
+        # 保证并发首次调用只有一个线程真正执行 _initialize()
+        with self._instance_lock:
+            if getattr(self, '_initialized', False):
+                return
+            self._initialize(db_path, collection_name, embedding_model)
+            self._initialized = True
 
+    def _initialize(
+        self,
+        db_path: str,
+        collection_name: str,
+        embedding_model: str,
+    ):
+        """真正的初始化逻辑（由 __init__ 在锁内调用，请勿直接调用）"""
         target = Path(__file__).resolve().parent.parent / 'knowledge' / 'data' / 'milvus_lite.db'
         target.parent.mkdir(parents=True, exist_ok=True)
         self.db_path = str(target)
@@ -121,16 +138,33 @@ class MedicalKnowledgeBase:
         except Exception as e:
             logger.warning(f"Failed to load collection: {e}")
 
-        self._initialized = True
         self._reranker = None
 
+        # BM25 索引缓存：语料构建代价高（全表拉取 + 全量分词 + 建索引），
+        # 不能每次检索都重做；知识库写入时由 invalidate_bm25_cache() 失效
+        self._bm25_cache: Optional[Dict[str, Any]] = None
+        self._bm25_lock = threading.RLock()
+
+        # reranker 懒加载锁：Skill 现由线程池并发执行，若不加锁，
+        # 并发首次检索会重复加载 CrossEncoder（模型约 1GB，代价极高）
+        self._reranker_lock = threading.Lock()
+
     def _get_reranker(self):
-        """懒加载 reranker（cross-encoder），按需加载，避免拖慢启动"""
+        """懒加载 reranker（cross-encoder），按需加载，避免拖慢启动（线程安全）"""
         if not _HAS_RERANKER:
             return None
-        if self._reranker is None:
+
+        # 快路径：已加载（或已标记失败）则直接返回
+        if self._reranker is not None:
+            return self._reranker if self._reranker else None
+
+        with self._reranker_lock:
+            # 双重检查：可能已被其它线程加载完成
+            if self._reranker is not None:
+                return self._reranker if self._reranker else None
             try:
                 import os
+
                 # 优先本地缓存，其次按名称加载
                 reranker_name = os.environ.get(
                     "MEDIX_RERANKER_MODEL", "BAAI/bge-reranker-base"
@@ -140,6 +174,7 @@ class MedicalKnowledgeBase:
             except Exception as e:
                 logger.error(f"Failed to load reranker: {e}")
                 self._reranker = False  # 标记失败，避免反复尝试
+
         return self._reranker if self._reranker else None
 
     def _chunk_text(self, text: str, chunk_size: int = 1024, overlap: int = 100) -> List[str]:
@@ -218,6 +253,9 @@ class MedicalKnowledgeBase:
         self.milvus_client.insert(self.collection_name, data)
         logger.info(f"Successfully added {len(data)} chunks")
 
+        # 语料已变化，BM25 索引必须失效，否则后续检索会命中过期语料
+        self.invalidate_bm25_cache()
+
         return len(data)
 
     def _fetch_all_chunks(self, limit: int = 16384) -> List[Dict[str, Any]]:
@@ -257,25 +295,80 @@ class MedicalKnowledgeBase:
             }
         return list(seen.values())
 
-    def _bm25_retrieve(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
-        """BM25 关键词检索（在去重后的全量 chunk 上）"""
+    def invalidate_bm25_cache(self) -> None:
+        """让 BM25 索引缓存失效。
+
+        知识库发生任何写入后都必须调用，否则检索会命中过期语料。
+        """
+        with self._bm25_lock:
+            if self._bm25_cache is not None:
+                logger.debug("BM25 index cache invalidated")
+            self._bm25_cache = None
+
+    def _get_bm25_index(self) -> Optional[Dict[str, Any]]:
+        """获取 BM25 索引，首次调用或缓存失效后重建。
+
+        缓存内容：去重后的 chunk 列表 + 分词后的语料 + BM25Okapi 实例。
+        只在首次检索或知识库写入后重建，避免每次查询都全表扫描并重建索引（O(N)）。
+        """
+        if not _HAS_BM25:
+            return None
+
+        # 快路径：缓存命中直接返回（单个属性赋值为原子操作，无锁读安全）
+        cache = self._bm25_cache
+        if cache is not None:
+            return cache
+
+        with self._bm25_lock:
+            # 双重检查：可能已被其它线程抢先构建
+            if self._bm25_cache is not None:
+                return self._bm25_cache
+
+            chunks = self._fetch_all_chunks()
+            if not chunks:
+                # 知识库为空：不缓存（空集合查询很快），下次仍会重试
+                return None
+
+            corpus = [self._tokenize(c["content"]) for c in chunks]
+            self._bm25_cache = {
+                "chunks": chunks,
+                "index": BM25Okapi(corpus),
+            }
+            logger.info(f"BM25 index built/rebuilt (chunks={len(chunks)})")
+            return self._bm25_cache
+
+    def _bm25_retrieve(
+        self, query: str, top_k: int = 5, filter_type: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """BM25 关键词检索（在去重后的全量 chunk 上，索引带缓存）。
+
+        filter_type: 按 metadata.type 过滤候选。必须与向量检索的过滤保持一致，
+        否则 BM25 会把其它类型的文档通过 RRF 融合"漏"进最终结果，导致 filter_type
+        约束被绕过（例如查 ICD-10 编码却返回生活方式文档，给出错误编码）。
+        """
         if not _HAS_BM25:
             return []
         try:
-            chunks = self._fetch_all_chunks()
+            cache = self._get_bm25_index()
         except Exception as e:
-            logger.error(f"_bm25_retrieve fetch failed: {e}")
+            logger.error(f"_bm25_retrieve build/fetch failed: {e}")
             return []
-        if not chunks:
+        if not cache:
             return []
 
-        corpus = [self._tokenize(c["content"]) for c in chunks]
-        bm25 = BM25Okapi(corpus)
-        scores = bm25.get_scores(self._tokenize(query))
+        chunks = cache["chunks"]
+        # 索引覆盖全量 chunk，下标与 chunks 一一对应，因此先算全量分数再过滤
+        scores = cache["index"].get_scores(self._tokenize(query))
 
         ranked = sorted(
             range(len(chunks)), key=lambda i: scores[i], reverse=True
         )
+        if filter_type:
+            ranked = [
+                i for i in ranked
+                if (chunks[i].get("metadata") or {}).get("type") == filter_type
+            ]
+
         results = []
         for i in ranked[:top_k]:
             if scores[i] <= 0.0:
@@ -410,7 +503,10 @@ class MedicalKnowledgeBase:
 
         # 混合检索：向量 + BM25，RRF 融合
         try:
-            bm25_ranked = self._bm25_retrieve(query, top_k=top_k * 2)
+            # filter_type 必须一并传给 BM25，否则融合结果会混入其它类型的文档
+            bm25_ranked = self._bm25_retrieve(
+                query, top_k=top_k * 2, filter_type=filter_type
+            )
         except Exception as e:
             logger.error(f"BM25 retrieve failed, fallback to vector only: {e}")
             return vector_ranked[:top_k]
@@ -453,6 +549,7 @@ class MedicalKnowledgeBase:
         if self.milvus_client.has_collection(self.collection_name):
             self.milvus_client.drop_collection(self.collection_name)
             logger.info(f"Deleted collection: {self.collection_name}")
+        self.invalidate_bm25_cache()
 
     def count_documents(self) -> int:
         """统计文档数量"""

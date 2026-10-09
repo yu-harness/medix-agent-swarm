@@ -72,3 +72,12 @@ milvus_demo.db
 .milvus/
 volumes/
 *.db.bak
+
+# 会话摘要：每次评测都会重新生成，属于运行产物
+**/session_summaries/
+
+# 本地依赖扫描与一次性脚本
+_dep_scan_tmp.py
+
+# 本地向量库与运行目录
+tmp/

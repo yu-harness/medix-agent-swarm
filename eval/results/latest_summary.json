@@ -1,103 +1,67 @@
 {
   "meta": {
     "seed": 42,
-    "per_category": 20,
-    "n_target": 80,
+    "per_category": 50,
+    "n_target": 4,
     "semaphore": 2,
     "timeout_sec": 120.0,
     "data": "D:\\md\\AI实习\\project\\居丽叶简历项目7：医疗助手\\medix-agent-swarm\\eval\\data\\benchmark_500.jsonl",
-    "detail_path": "D:\\md\\AI实习\\project\\居丽叶简历项目7：医疗助手\\medix-agent-swarm\\eval\\results\\agent_eval_detail_latency80.jsonl",
+    "detail_path": "medix-agent-swarm\\eval\\results\\agent_eval_detail_smoke_after_cleanup.jsonl",
     "emb_high": 0.75,
     "emb_low": 0.4,
     "reuse_coordinator": true,
-    "started_at": "2026-08-23T08:17:36.566844+00:00",
-    "finished_at": "2026-08-23T08:36:26.150363+00:00",
-    "elapsed_sec": 1129.6
+    "started_at": "2026-09-02T06:36:38.285955+00:00",
+    "finished_at": "2026-09-02T06:39:21.743364+00:00",
+    "elapsed_sec": 163.5
   },
   "summary": {
-    "n": 80,
-    "correct": 72,
-    "partial": 3,
-    "exact_accuracy": 0.9,
-    "partial_rate": 0.0375,
+    "n": 4,
+    "correct": 4,
+    "partial": 0,
+    "exact_accuracy": 1.0,
+    "partial_rate": 0.0,
     "latency": {
-      "mean": 21.468,
-      "p50": 16.324,
-      "p95": 41.937,
-      "n": 80
+      "mean": 14.909,
+      "p50": 11.93,
+      "p95": 24.813,
+      "n": 4
     },
     "by_category": {
       "health_consult": {
-        "n": 20,
-        "correct": 20,
+        "n": 0,
+        "correct": 0,
+        "partial": 0,
+        "exact_accuracy": null,
+        "partial_rate": null
+      },
+      "symptom_diagnosis": {
+        "n": 0,
+        "correct": 0,
+        "partial": 0,
+        "exact_accuracy": null,
+        "partial_rate": null
+      },
+      "disease_knowledge": {
+        "n": 1,
+        "correct": 1,
         "partial": 0,
         "exact_accuracy": 1.0,
         "partial_rate": 0.0
       },
-      "symptom_diagnosis": {
-        "n": 20,
-        "correct": 17,
-        "partial": 0,
-        "exact_accuracy": 0.85,
-        "partial_rate": 0.0
-      },
-      "disease_knowledge": {
-        "n": 20,
-        "correct": 16,
-        "partial": 2,
-        "exact_accuracy": 0.8,
-        "partial_rate": 0.1
-      },
       "guideline_retrieval": {
-        "n": 20,
-        "correct": 19,
-        "partial": 1,
-        "exact_accuracy": 0.95,
-        "partial_rate": 0.05
+        "n": 3,
+        "correct": 3,
+        "partial": 0,
+        "exact_accuracy": 1.0,
+        "partial_rate": 0.0
       }
     },
-    "error_top": [
-      [
-        "遗漏金标中小儿分年龄递增用量的核心要点，仅覆盖成人剂量。",
-        1
-      ],
-      [
-        "系统回答泛谈皮肤病鉴别，未提及金标核心的碘伏消毒和达克宁抗真菌治疗，结论方向偏离。",
-        1
-      ],
-      [
-        "仅提及HFpEF亚型分层，遗漏金标核心的目标血压及ACEI/ARB+利尿剂首选治疗要点。",
-        1
-      ],
-      [
-        "标准答案核心是儿茶酚胺能神经元，系统回答未提及且方向偏离，改为解释癫痫病因。",
-        1
-      ],
-      [
-        "系统回答区分酒精性与非酒精性脂肪肝，与金标结论相左，遗漏核心结论方向。",
-        1
-      ],
-      [
-        "标准答案为推荐特定产品，系统回答未提及该产品且主张按摩不能丰胸，核心结论方向矛盾。",
-        1
-      ],
-      [
-        "系统回答把克利法胺误作抗组胺药Clemastine，完全未涉及标准答案中二氯乙酰胺衍生物、口服吸收少等核心药理要点。",
-        1
-      ],
-      [
-        "标准答案为结核性病因（放射性损伤、心脏手术后），系统回答为结核分枝杆菌感染，核心结论方向完全不符。",
-        1
-      ]
-    ],
+    "error_top": [],
     "verdict_counts": {
-      "correct": 72,
-      "partial": 3,
-      "incorrect": 5
+      "correct": 4
     },
     "mode_counts": {
-      "single_agent": 66,
-      "swarm": 14
+      "single_agent": 4
     }
   }
 }

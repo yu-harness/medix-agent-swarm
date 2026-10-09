@@ -142,7 +142,8 @@ class LongTermMemory:
         session_id: str,
         question: str,
         answer: str,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        user_id: str = "medix_user",
     ) -> Optional[str]:
         """
         添加会话总结到 Mem0
@@ -152,6 +153,7 @@ class LongTermMemory:
             question: 用户问题
             answer: 系统回答
             metadata: 额外元数据（复杂度、时间等）
+            user_id: 用户标识（多用户记忆空间键；缺省回落全局共享空间，兼容 demo/eval）
 
         Returns:
             记忆ID，失败返回 None
@@ -163,10 +165,10 @@ class LongTermMemory:
             # 构建记忆文本（包含问题和答案摘要）
             memory_text = f"问题：{question}\\n回答：{answer[:500]}..."
 
-            # 添加到 Mem0
+            # 添加到 Mem0（user_id 是记忆空间键：add/search 只在同用户空间内生效）
             result = self.mem0.add(
                 messages=[{"role": "user", "content": memory_text}],
-                user_id="medix_user",  # 固定用户ID（可扩展为多用户）
+                user_id=user_id,
                 metadata={
                     "type": "session_summary",
                     "session_id": session_id,
@@ -191,7 +193,8 @@ class LongTermMemory:
     def search_similar_sessions(
         self,
         query: str,
-        limit: int = 5
+        limit: int = 5,
+        user_id: str = "medix_user",
     ) -> List[Dict[str, Any]]:
         """
         搜索相似的历史会话（向量相似度搜索，自动去重）
@@ -199,6 +202,7 @@ class LongTermMemory:
         Args:
             query: 查询文本（通常是用户问题）
             limit: 返回结果数量
+            user_id: 用户标识（多用户隔离；缺省回落全局共享空间，兼容 demo/eval）
 
         Returns:
             相似会话列表，每个包含 memory_id、content、score、metadata
@@ -209,7 +213,7 @@ class LongTermMemory:
         try:
             results = self.mem0.search(
                 query=query,
-                user_id="medix_user",
+                user_id=user_id,  # 只在当前用户空间内检索，天然隔离
                 limit=limit * 2  # 多获取一些以便去重后有足够结果
             )
 

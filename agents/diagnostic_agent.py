@@ -50,22 +50,28 @@ class DiagnosticAgent(BaseAgent, SkillRegistryMixin):
         ])
 
     def register_tools(self):
-        """注册所有 9 个 Skills（共享实现，来自 SkillRegistryMixin）"""
+        """按 YAML 白名单注册本 Agent 的 Skills（共享实现，来自 SkillRegistryMixin）"""
         self.register_all_skills()
 
 
     def get_system_prompt(self) -> str:
         """获取系统提示词"""
-        return """你是专业的诊断 Agent（DiagnosticAgent）。职责：症状模式分析、鉴别诊断思路、风险分层。永远不做确诊。
+        # 可用 Skills 由注册表动态渲染，与 YAML 白名单同源（单一来源）
+        order = self.render_skill_refs("assess_risk", "analyze_symptoms", sep=" → ")
+        order_block = ""
+        if order:
+            order_block = f"**调用顺序（症状题必须）**：\n{order}"
+            if self.has_skill("search_knowledge"):
+                order_block += "；信息不足再 search_knowledge"
+            order_block += "\n\n"
+        return f"""你是专业的诊断 Agent（DiagnosticAgent）。职责：症状模式分析、鉴别诊断思路、风险分层。永远不做确诊。
 
 **原则**：常见病优先，不漏危险疾病；明确建议检查；可执行的下一步。
 
-**Skills**：1.search_knowledge 2.recommend_lifestyle 3.assess_risk 4.analyze_symptoms
-5.disease_code 6.clinical_guideline 7.deep_research 8.search_history 9.search_similar_cases
+**Skills**（{len(self.skill_registry.get_all())} 个，由注册表自动渲染，与 YAML 白名单同源）：
+{self.render_available_skills()}
 
-**调用顺序（症状题必须）**：
-1) assess_risk 2) analyze_symptoms；信息不足再 search_knowledge
-最多 2-3 次 Skill，然后输出最终思路
+{order_block}最多 2-3 次 Skill，然后输出最终思路
 
 **输出模式**：
 A. 首轮/无历史 → 完整结构：

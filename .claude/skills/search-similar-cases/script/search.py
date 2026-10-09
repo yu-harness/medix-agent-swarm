@@ -6,7 +6,10 @@ from typing import Dict, Any
 from loguru import logger
 
 
-async def search_similar_cases(query: str, max_results: int = 3) -> Dict[str, Any]:
+# 注意：函数体全为同步阻塞调用（Mem0 长期记忆检索），没有任何 await。
+# 声明为同步函数后，SkillRegistry 会自动丢进线程池执行，不阻塞 event loop；
+# 切勿改回 async def，否则阻塞会串行化整个 Swarm。
+def search_similar_cases(query: str, max_results: int = 3) -> Dict[str, Any]:
     """
     搜索相似的历史案例
 
@@ -98,19 +101,16 @@ def format_cases(results: list) -> str:
     return "\n".join(output)
 
 
-# 同步版本
+# 同步版本（函数本身已是同步，直接透传）
 def search_similar_cases_sync(query: str, max_results: int = 3) -> Dict[str, Any]:
     """同步版本的搜索相似案例"""
-    import asyncio
-    return asyncio.run(search_similar_cases(query, max_results))
+    return search_similar_cases(query, max_results)
 
 
 if __name__ == "__main__":
     # 测试
-    import asyncio
-
     test_query = "高血压患者的生活方式建议"
-    result = asyncio.run(search_similar_cases(test_query))
+    result = search_similar_cases(test_query)
 
     print("=" * 70)
     print(f"查询: {test_query}")

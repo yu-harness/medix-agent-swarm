@@ -1,22 +1,22 @@
-# 约束：warn → enforce
+# 约束：默认 enforce（硬拦），可退回 warn
 
 ## 问题
-全量注册 Skills 后，LLM 可能越权调用非本 Agent 白名单工具 → 合规风险 + 延迟/质量下降。
+注册阶段已按 YAML 白名单裁剪（consultation 5 / diagnostic 7 / research 5），LLM 的 tools 里本就没有白名单外 Skill；但模型仍可能幻觉出未注册调用、或白名单漏配真实合理调用 → validator 作**第二道兜底闸**（否则有合规风险 + 延迟/质量下降）。
 
 ## 方法
 1. YAML（`agent_constraints.yaml`）定义各 Agent `allowed_tools`
-2. **默认 warn**：违规只打 `约束警告(warned)` 日志，仍执行（防误伤、可观测）
-3. **可选 enforce**：`CONSTRAINT_ENFORCE=1` 时硬拦，不 `execute_tool`，向 messages 回写拒绝原因（含可用 Skill 列表）
+2. **默认 enforce（硬拦）**：越权不 `execute_tool`，向 messages 回写拒绝原因（含可用 Skill 列表）
+3. **可选 warn**：`CONSTRAINT_ENFORCE=0` 时只打 `约束警告(warned)` 日志、仍执行，仅用于排查白名单漏配
 
-## 开启 enforce
+## 退回 warn（仅排查用）
 ```bash
 # Windows PowerShell
-$env:CONSTRAINT_ENFORCE="1"
+$env:CONSTRAINT_ENFORCE="0"
 
 # 或在 config.py
-CONSTRAINT_ENFORCE = True
+CONSTRAINT_ENFORCE = False
 ```
-不设或 `0` / `False` → 保持现网 warn。
+不设或 `1` / `True` → 硬拦（默认）。
 
 ## 复现对比（可选）
 ```bash

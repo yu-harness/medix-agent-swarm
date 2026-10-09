@@ -44,7 +44,7 @@ Skills 自 `.agents/skills/`（及 `.claude/skills/` 镜像）加载，经 `Skil
 
 ## 约束 warn → enforce
 
-见 [constraints/README.md](../constraints/README.md)。默认 warn；`CONSTRAINT_ENFORCE=1` 硬拦越权 Skill。输出侧：`validation/auto_fixer` 可补免责声明/高危提醒。
+见 [constraints/README.md](../constraints/README.md)。默认硬拦越权 Skill；`CONSTRAINT_ENFORCE=0` 退回 warn。输出侧：`validation/auto_fixer` 可补免责声明/高危提醒。
 
 ## 后续
 

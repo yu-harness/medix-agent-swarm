@@ -3,12 +3,26 @@
 
 agents:
   consultation_agent:
+    # 角色画像：LeadAgent 动态生成"可用 Worker"提示词的单一来源
+    role:
+      display: ConsultationAgent（健康咨询专家）
+      specialties:
+        - 常见疾病科普和健康建议
+        - 症状初步评估和风险分级
+        - 生活方式指导（饮食、运动、睡眠）
+        - 日常健康管理
+      scenarios:
+        - 简单症状咨询（"我感冒了""头痛怎么办"）
+        - 健康科普（"什么是高血压""多喝水的好处"）
+        - 预防建议（"如何预防感冒"）
+        - 生活方式指导（"高血压患者饮食注意什么"）
+
     capabilities:
       - general_health_advice
       - risk_assessment
       - symptom_triage
 
-    # 允许的工具（全量注册后靠白名单约束；默认 warn，CONSTRAINT_ENFORCE=1 时硬拦）
+    # 允许的工具（注册期即按此名单裁剪，名单外 Skill 不注册进工具列表；运行期 validator 仅兜底，默认硬拦）
     allowed_tools:
       - search_knowledge
       - recommend_lifestyle
@@ -29,6 +43,19 @@ agents:
       - must_use_respectful_tone  # 必须使用尊重的语气
 
   diagnostic_agent:
+    role:
+      display: DiagnosticAgent（诊断推理专家）
+      specialties:
+        - 症状模式分析和关联性评估
+        - 鉴别诊断推理
+        - 疾病编码和分类（ICD-10）
+        - 复杂症状的风险评估
+      scenarios:
+        - 复杂症状分析（"头痛+恶心+视力模糊"）
+        - 多系统问题（"胸闷气短冒冷汗，严重吗"）
+        - 症状持续加重（"头痛一周了越来越严重"）
+        - 需要鉴别诊断的情况
+
     capabilities:
       - symptom_analysis
       - differential_diagnosis
@@ -54,6 +81,19 @@ agents:
       - must_explain_reasoning  # 必须解释诊断推理
 
   research_agent:
+    role:
+      display: ResearchAgent（循证医学专家）
+      specialties:
+        - 临床指南和诊疗规范检索
+        - 最新医学研究和证据综合
+        - 权威治疗方案查询
+        - 文献支持和证据等级评估
+      scenarios:
+        - 需要权威指南（"高血压最新诊疗指南"）
+        - 询问标准治疗方案（"糖尿病如何治疗"）
+        - 需要最新医学进展
+        - 需要循证医学证据支持
+
     capabilities:
       - literature_search
       - evidence_synthesis
@@ -76,6 +116,40 @@ agents:
     output_constraints:
       - must_cite_sources  # 必须引用来源（指南、文献）
       - must_distinguish_facts_from_opinions  # 区分事实和观点
+
+  # Demo 新增 Worker（验证 LeadAgent 自动识别）：营养与饮食专家
+  nutrition_agent:
+    role:
+      display: NutritionAgent（营养与饮食专家）
+      specialties:
+        - 膳食方案设计与营养搭配
+        - 微量营养素补充建议（补铁、补钙、维生素D等）
+        - 慢病人群饮食管理（糖尿病、高血压、贫血等）
+        - 食品安全与忌口指导
+      scenarios:
+        - 贫血/缺铁等饮食调理（"我贫血怎么补"）
+        - 慢病人群食谱咨询（"糖尿病能吃哪些主食"）
+        - 营养补充剂选择（"要不要吃维生素D"）
+        - 体重管理与运动营养
+
+    capabilities:
+      - nutrition_advice
+      - diet_planning
+      - food_safety
+
+    allowed_tools:
+      - search_knowledge
+      - recommend_lifestyle
+      - search_history
+      - search_similar_cases
+
+    forbidden_actions:
+      - give_diagnosis
+      - prescribe_medication
+
+    output_constraints:
+      - must_include_disclaimer
+      - must_use_respectful_tone
 
 # 通用约束（所有 Agent 共享）
 common:

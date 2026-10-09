@@ -4,19 +4,29 @@ Disease Code Skill
 """
 from typing import Dict, Any
 from loguru import logger
+import threading
 
 # 全局知识库实例
 _kb_instance = None
+# Skill 现由 SkillRegistry 丢进线程池并发执行，懒加载必须加锁；
+# 否则多线程会重复创建实例（重复加载向量模型 + 重复打开 Milvus Lite 文件句柄）
+_kb_lock = threading.RLock()
 
 def get_knowledge_base():
+    """获取知识库单例（线程安全，双重检查锁定）"""
     global _kb_instance
     if _kb_instance is None:
-        from knowledge.milvus_kb import MedicalKnowledgeBase
-        _kb_instance = MedicalKnowledgeBase()
+        with _kb_lock:
+            if _kb_instance is None:
+                from knowledge.milvus_kb import MedicalKnowledgeBase
+                _kb_instance = MedicalKnowledgeBase()
     return _kb_instance
 
 
-async def disease_code(disease_name: str) -> Dict[str, Any]:
+# 注意：函数体全为同步阻塞调用（Milvus 检索），没有任何 await。
+# 声明为同步函数后，SkillRegistry 会自动丢进线程池执行，不阻塞 event loop；
+# 切勿改回 async def，否则阻塞会串行化整个 Swarm。
+def disease_code(disease_name: str) -> Dict[str, Any]:
     """
     查询疾病 ICD-10 编码
 
@@ -85,5 +95,4 @@ def format_code_info(disease_name: str, content: str) -> str:
 
 
 def disease_code_sync(disease_name: str) -> Dict[str, Any]:
-    import asyncio
-    return asyncio.run(disease_code(disease_name))
+    return disease_code(disease_name)

@@ -1,0 +1,396 @@
+{
+  "args": {
+    "data": "D:\\md\\AI实习\\project\\居丽叶简历项目7：医疗助手\\medix-agent-swarm\\eval\\data\\benchmark_500.jsonl",
+    "out_dir": "D:\\md\\AI实习\\project\\居丽叶简历项目7：医疗助手\\medix-agent-swarm\\eval\\results",
+    "seed": 42,
+    "per_category": 5,
+    "timeout": 180.0
+  },
+  "summary": {
+    "n_total": 20,
+    "n_ok": 20,
+    "n_failed": 0,
+    "overall": {
+      "client_ttft_ms": {
+        "n": 20,
+        "mean": 4221.8,
+        "p50": 2900.9,
+        "p95": 9774.9,
+        "max": 12039.7
+      },
+      "answer_ttft_ms": {
+        "n": 20,
+        "mean": 668.1,
+        "p50": 643.3,
+        "p95": 1045.4,
+        "max": 1098.4
+      },
+      "total_ms": {
+        "n": 20,
+        "mean": 13052.7,
+        "p50": 10434.0,
+        "p95": 20094.1,
+        "max": 50683.6
+      }
+    },
+    "by_mode": {
+      "single_agent": {
+        "client_ttft_ms": {
+          "n": 17,
+          "mean": 3158.5,
+          "p50": 2718.4,
+          "p95": 5080.5,
+          "max": 5593.5
+        },
+        "answer_ttft_ms": {
+          "n": 17,
+          "mean": 672.7,
+          "p50": 644.9,
+          "p95": 1053.8,
+          "max": 1098.4
+        },
+        "total_ms": {
+          "n": 17,
+          "mean": 12606.2,
+          "p50": 9846.1,
+          "p95": 20391.3,
+          "max": 50683.6
+        }
+      },
+      "swarm": {
+        "client_ttft_ms": {
+          "n": 3,
+          "mean": 10247.4,
+          "p50": 9655.7,
+          "p95": 11801.3,
+          "max": 12039.7
+        },
+        "answer_ttft_ms": {
+          "n": 3,
+          "mean": 641.8,
+          "p50": 633.1,
+          "p95": 726.5,
+          "max": 736.9
+        },
+        "total_ms": {
+          "n": 3,
+          "mean": 15582.8,
+          "p50": 14929.7,
+          "p95": 18128.7,
+          "max": 18484.1
+        }
+      }
+    }
+  },
+  "records": [
+    {
+      "id": "guideline_retrieval_004",
+      "category": "guideline_retrieval",
+      "question": "权威资料对「核心理由」给出了哪些核心要求？（线索：- 糖尿病+高血压→心血管风险增加2-4倍 - …）",
+      "trace_id": "b9f27e5b29d0",
+      "ok": true,
+      "mode": "single_agent",
+      "client_ttft_ms": 4952.2,
+      "answer_ttft_ms": 577.0,
+      "total_ms": 50683.6,
+      "llm_calls": 3,
+      "delta_chars": 2184,
+      "agents_involved": null,
+      "answer_chars": 1771
+    },
+    {
+      "id": "symptom_diagnosis_075",
+      "category": "symptom_diagnosis",
+      "question": "问糖尿病吃什么钙片好？：糖尿病女性74患骨质疏松吃什么钙片比较合适？",
+      "trace_id": "6c39f1d48d01",
+      "ok": true,
+      "mode": "single_agent",
+      "client_ttft_ms": 2773.1,
+      "answer_ttft_ms": 644.9,
+      "total_ms": 9742.4,
+      "llm_calls": 2,
+      "delta_chars": 1442,
+      "agents_involved": null,
+      "answer_chars": 1358
+    },
+    {
+      "id": "health_consult_100",
+      "category": "health_consult",
+      "question": "孩子怎样增强抵抗力患者年龄:孩子体质差，看过多次中医，都没看好！",
+      "trace_id": "ed55ae6e553a",
+      "ok": true,
+      "mode": "single_agent",
+      "client_ttft_ms": 3028.7,
+      "answer_ttft_ms": 529.3,
+      "total_ms": 11038.8,
+      "llm_calls": 2,
+      "delta_chars": 1710,
+      "agents_involved": null,
+      "answer_chars": 1639
+    },
+    {
+      "id": "guideline_retrieval_111",
+      "category": "guideline_retrieval",
+      "question": "关于「二、病毒性疾病」，指南或知识文档怎么写？（线索：麻疹（B05） - 症状：发热、咳嗽、流涕、结膜…）",
+      "trace_id": "03fd0e2744ce",
+      "ok": true,
+      "mode": "single_agent",
+      "client_ttft_ms": 2632.2,
+      "answer_ttft_ms": 553.6,
+      "total_ms": 10755.4,
+      "llm_calls": 3,
+      "delta_chars": 1908,
+      "agents_involved": null,
+      "answer_chars": 1591
+    },
+    {
+      "id": "disease_knowledge_045",
+      "category": "disease_knowledge",
+      "question": "二氮嗪药理作用",
+      "trace_id": "bb6012dae109",
+      "ok": true,
+      "mode": "single_agent",
+      "client_ttft_ms": 5593.5,
+      "answer_ttft_ms": 818.8,
+      "total_ms": 9836.3,
+      "llm_calls": 2,
+      "delta_chars": 907,
+      "agents_involved": null,
+      "answer_chars": 885
+    },
+    {
+      "id": "symptom_diagnosis_045",
+      "category": "symptom_diagnosis",
+      "question": "嗓子干痒、肿胀身体发热但不发烧",
+      "trace_id": "d435d1904255",
+      "ok": true,
+      "mode": "swarm",
+      "client_ttft_ms": 9046.9,
+      "answer_ttft_ms": 633.1,
+      "total_ms": 13334.5,
+      "llm_calls": null,
+      "delta_chars": 1433,
+      "agents_involved": [
+        "diagnostic_agent",
+        "consultation_agent"
+      ],
+      "answer_chars": 1433
+    },
+    {
+      "id": "health_consult_010",
+      "category": "health_consult",
+      "question": "怀孕32周，胎儿肠管1。3",
+      "trace_id": "4e0e86330f1c",
+      "ok": true,
+      "mode": "swarm",
+      "client_ttft_ms": 12039.7,
+      "answer_ttft_ms": 555.5,
+      "total_ms": 18484.1,
+      "llm_calls": null,
+      "delta_chars": 1833,
+      "agents_involved": [
+        "consultation_agent",
+        "diagnostic_agent"
+      ],
+      "answer_chars": 1833
+    },
+    {
+      "id": "health_consult_071",
+      "category": "health_consult",
+      "question": "家里有亲戚得过癫痫，想预防工作一下，您好抗癫痫的药物是什么？为什么会得癫痫？",
+      "trace_id": "3187056f7e0c",
+      "ok": true,
+      "mode": "single_agent",
+      "client_ttft_ms": 2718.4,
+      "answer_ttft_ms": 641.7,
+      "total_ms": 11582.9,
+      "llm_calls": 3,
+      "delta_chars": 1575,
+      "agents_involved": null,
+      "answer_chars": 1464
+    },
+    {
+      "id": "guideline_retrieval_041",
+      "category": "guideline_retrieval",
+      "question": "关于「重要】虽然诊断标准统一，但以下人群需特别注意：」，指南或知识文档怎么写？（线索：老年人（≥65岁）： - 诊断标准：与青壮年相同…）",
+      "trace_id": "8a65a399280b",
+      "ok": true,
+      "mode": "single_agent",
+      "client_ttft_ms": 2348.5,
+      "answer_ttft_ms": 516.3,
+      "total_ms": 12818.2,
+      "llm_calls": 3,
+      "delta_chars": 2615,
+      "agents_involved": null,
+      "answer_chars": 2217
+    },
+    {
+      "id": "guideline_retrieval_075",
+      "category": "guideline_retrieval",
+      "question": "检索文档中关于「1. 医学营养治疗（MNT）」的规定或建议是什么？（线索：碳水化合物： - 占总能量45-60% - 优先…）",
+      "trace_id": "694efb5dda18",
+      "ok": true,
+      "mode": "single_agent",
+      "client_ttft_ms": 1898.4,
+      "answer_ttft_ms": 716.2,
+      "total_ms": 9378.4,
+      "llm_calls": 2,
+      "delta_chars": 1791,
+      "agents_involved": null,
+      "answer_chars": 1610
+    },
+    {
+      "id": "disease_knowledge_093",
+      "category": "disease_knowledge",
+      "question": "结核性的病因是什么？",
+      "trace_id": "8d6b568ccf3e",
+      "ok": true,
+      "mode": "single_agent",
+      "client_ttft_ms": 4467.0,
+      "answer_ttft_ms": 484.6,
+      "total_ms": 9145.2,
+      "llm_calls": 2,
+      "delta_chars": 1166,
+      "agents_involved": null,
+      "answer_chars": 1159
+    },
+    {
+      "id": "guideline_retrieval_030",
+      "category": "guideline_retrieval",
+      "question": "请引用文档片段回答：「7. 合并心力衰竭患者」应如何把握？（线索：射血分数保留性心衰（HFpEF，EF≥50%）：…）",
+      "trace_id": "02ed7b9acd11",
+      "ok": true,
+      "mode": "single_agent",
+      "client_ttft_ms": 2535.0,
+      "answer_ttft_ms": 737.8,
+      "total_ms": 10838.9,
+      "llm_calls": 3,
+      "delta_chars": 1987,
+      "agents_involved": null,
+      "answer_chars": 1624
+    },
+    {
+      "id": "symptom_diagnosis_122",
+      "category": "symptom_diagnosis",
+      "question": "酒精性肝损伤症状",
+      "trace_id": "105645226f4d",
+      "ok": true,
+      "mode": "single_agent",
+      "client_ttft_ms": 4444.9,
+      "answer_ttft_ms": 1098.4,
+      "total_ms": 9815.8,
+      "llm_calls": 2,
+      "delta_chars": 1358,
+      "agents_involved": null,
+      "answer_chars": 1348
+    },
+    {
+      "id": "symptom_diagnosis_120",
+      "category": "symptom_diagnosis",
+      "question": "克立法胺药理作用",
+      "trace_id": "53bf8ea00b95",
+      "ok": true,
+      "mode": "single_agent",
+      "client_ttft_ms": 2577.3,
+      "answer_ttft_ms": 886.2,
+      "total_ms": 9783.0,
+      "llm_calls": 2,
+      "delta_chars": 1263,
+      "agents_involved": null,
+      "answer_chars": 1226
+    },
+    {
+      "id": "symptom_diagnosis_073",
+      "category": "symptom_diagnosis",
+      "question": "老公最近下体有点疼去医院仔细检查发觉是得了糖尿糖尿病龟头烂用什么药？",
+      "trace_id": "fd161923ed96",
+      "ok": true,
+      "mode": "swarm",
+      "client_ttft_ms": 9655.7,
+      "answer_ttft_ms": 736.9,
+      "total_ms": 14929.7,
+      "llm_calls": null,
+      "delta_chars": 1746,
+      "agents_involved": [
+        "consultation_agent",
+        "diagnostic_agent"
+      ],
+      "answer_chars": 1746
+    },
+    {
+      "id": "disease_knowledge_077",
+      "category": "disease_knowledge",
+      "question": "激光祛斑怎么办",
+      "trace_id": "290ea3ba7278",
+      "ok": true,
+      "mode": "single_agent",
+      "client_ttft_ms": 2225.8,
+      "answer_ttft_ms": 1042.6,
+      "total_ms": 10919.1,
+      "llm_calls": 3,
+      "delta_chars": 1090,
+      "agents_involved": null,
+      "answer_chars": 1003
+    },
+    {
+      "id": "disease_knowledge_066",
+      "category": "disease_knowledge",
+      "question": "吡卡酯药理作用",
+      "trace_id": "3aff5c19214c",
+      "ok": true,
+      "mode": "single_agent",
+      "client_ttft_ms": 2404.9,
+      "answer_ttft_ms": 679.4,
+      "total_ms": 9846.1,
+      "llm_calls": 2,
+      "delta_chars": 1188,
+      "agents_involved": null,
+      "answer_chars": 1090
+    },
+    {
+      "id": "disease_knowledge_029",
+      "category": "disease_knowledge",
+      "question": "羌活是什么?",
+      "trace_id": "314b3868970c",
+      "ok": true,
+      "mode": "single_agent",
+      "client_ttft_ms": 3732.6,
+      "answer_ttft_ms": 662.1,
+      "total_ms": 9176.8,
+      "llm_calls": 2,
+      "delta_chars": 1216,
+      "agents_involved": null,
+      "answer_chars": 1208
+    },
+    {
+      "id": "health_consult_099",
+      "category": "health_consult",
+      "question": "高血压多喝米醋是否能够软化血管？高血压多喝米醋是否能够软化血管？",
+      "trace_id": "81363ecc8f75",
+      "ok": true,
+      "mode": "single_agent",
+      "client_ttft_ms": 3355.3,
+      "answer_ttft_ms": 260.8,
+      "total_ms": 10112.7,
+      "llm_calls": 2,
+      "delta_chars": 1205,
+      "agents_involved": null,
+      "answer_chars": 1160
+    },
+    {
+      "id": "health_consult_097",
+      "category": "health_consult",
+      "question": "晚上睡觉经常失眠该怎么办啊？晚上睡觉经常失眠该怎么办啊？",
+      "trace_id": "ffb7812416a9",
+      "ok": true,
+      "mode": "single_agent",
+      "client_ttft_ms": 2006.6,
+      "answer_ttft_ms": 586.1,
+      "total_ms": 8831.4,
+      "llm_calls": 2,
+      "delta_chars": 1510,
+      "agents_involved": null,
+      "answer_chars": 1475
+    }
+  ]
+}

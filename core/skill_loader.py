@@ -171,25 +171,4 @@ def discover_skills(project_root: Path = None) -> List[Dict]:
     return discovered_skills
 
 
-def load_all_skills(project_root: Path = None) -> dict:
-    """
-    自动扫描并加载所有 Skills
 
-    Returns:
-        {
-            "search_knowledge": <function>,
-            "recommend_lifestyle": <function>,
-            ...
-        }
-    """
-    if project_root is None:
-        project_root = Path(__file__).parent.parent
-
-    discovered = discover_skills(project_root)
-
-    skills = {}
-    for skill_info in discovered:
-        function_name = skill_info["function_name"]
-        skills[function_name] = skill_info["function"]
-
-    return skills

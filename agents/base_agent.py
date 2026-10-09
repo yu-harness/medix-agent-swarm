@@ -36,8 +36,9 @@ class BaseAgent(ABC):
 
         # Swarm 协作相关
         self.capabilities: List[str] = []  # 能力标签
+        # 仅作为旧调用路径的兼容回退：正常路径由 process_subtask 参数注入。
+        # 注意：attach_shared_context() 已无调用方并已删除，故该字段实际恒为 None。
         self.shared_context: Optional[Any] = None  # SharedContext 引用
-        self.identity_manager: Optional[Any] = None  # AgentIdentityManager 引用
 
         logger.info(
             f"Initialized {self.__class__.__name__} (id={agent_id}) "
@@ -88,6 +89,18 @@ class BaseAgent(ABC):
         question = input_data.get('question') or input_data.get('query') or str(input_data)
         context = input_data.get('context') or {}
         parts = []
+        # 患者档案（跨会话确定性事实）：放最前，白名单强制注入
+        patient_facts = context.get('patient_facts') or ""
+        if patient_facts:
+            parts.append(patient_facts)
+            parts.append(
+                "【档案规则】以上为跨会话患者档案：过敏史/当前用药必须用于评估建议安全性；"
+                "标注「待确认」的条目不得当作已确认事实使用。"
+            )
+        # L2 运行摘要：更早轮次的语义压缩（历史超预算时才有），用于衔接上下文
+        running_summary = context.get('running_summary') or ""
+        if running_summary:
+            parts.append(f"【本会话背景摘要（更早轮次）】{running_summary}")
         anchor = context.get('session_anchor') or ""
         if anchor:
             parts.append(f"【本会话已知信息】{anchor}")
@@ -121,19 +134,39 @@ class BaseAgent(ABC):
         # 默认不做额外处理
         return result
 
-    async def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def process(
+        self,
+        input_data: Dict[str, Any],
+        on_delta: Optional[Any] = None,
+        stream: bool = False,
+    ) -> Dict[str, Any]:
         """
         处理输入数据
         默认实现：运行 Agent Loop
         子类可以重写以实现自定义逻辑
-        """
-        return await self.run_loop(input_data)
 
-    async def run_loop(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        Args:
+            on_delta: 正文增量回调，传入即启用流式（把 token 实时推给调用方）
+            stream: 为 True 时也走流式，只取 TTFT 指标
+        """
+        return await self.run_loop(input_data, on_delta=on_delta, stream=stream)
+
+    async def run_loop(
+        self,
+        input_data: Dict[str, Any],
+        on_delta: Optional[Any] = None,
+        stream: bool = False,
+    ) -> Dict[str, Any]:
         """运行 Agent Loop"""
         # 提取session_id（如果有）
         session_id = input_data.get('session_id')
-        return await self.loop.run(self, input_data, session_id=session_id)
+        return await self.loop.run(
+            self,
+            input_data,
+            session_id=session_id,
+            on_delta=on_delta,
+            stream=stream,
+        )
 
     # ===== Swarm 协作能力 =====
 
@@ -145,28 +178,33 @@ class BaseAgent(ABC):
         """获取 Agent 的能力标签"""
         return self.capabilities
 
-    def attach_shared_context(self, shared_context: Any):
-        """附加 SharedContext（由 Swarm 调用）"""
-        self.shared_context = shared_context
-
-    def attach_identity_manager(self, identity_manager: Any):
-        """附加 AgentIdentityManager（由 Swarm 调用）"""
-        self.identity_manager = identity_manager
-
-    async def process_subtask(self, subtask: Any) -> Dict[str, Any]:
+    async def process_subtask(
+        self,
+        subtask: Any,
+        shared_context: Optional[Any] = None
+    ) -> Dict[str, Any]:
         """
         处理子任务（Swarm 模式）
 
         子类可以重写以实现自定义逻辑
         默认实现：运行 Agent Loop，并注入 session_id / 会话锚点
+
+        参数:
+            shared_context: 由 Swarm 协调器以「依赖注入」方式传入的本次请求黑板。
+                优先使用传入的 request-local 实例，而非读取单例 Worker 上的
+                `self.shared_context` 共享字段，从而保证多请求并发时的上下文隔离，
+                避免跨请求串台（Cross-request Context Crosstalk）。
         """
+        # 依赖注入：优先使用调用方传入的 request-local 黑板；
+        # 仅当未传入时回退到 self.shared_context（向后兼容旧调用路径）。
+        ctx_obj = shared_context if shared_context is not None else self.shared_context
         ctx: Dict[str, Any] = {}
         session_id = None
         user_question = ""
-        if self.shared_context is not None:
-            session_id = getattr(self.shared_context, "session_id", None)
-            ctx = dict(self.shared_context.get_data("user_context") or {})
-            user_question = self.shared_context.get_data("user_question") or ""
+        if ctx_obj is not None:
+            session_id = getattr(ctx_obj, "session_id", None)
+            ctx = dict(ctx_obj.get_data("user_context") or {})
+            user_question = ctx_obj.get_data("user_question") or ""
 
         question = subtask.description
         if user_question:

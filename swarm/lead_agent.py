@@ -11,7 +11,7 @@ import uuid
 from typing import Dict, Any, List, Optional
 from loguru import logger
 
-from core.llm_client import LLMClient
+from core.llm_client import LLMClient, StreamStats
 from .shared_context import SharedContext, SubTask, TaskStatus
 from .events import Event, EventType
 
@@ -35,22 +35,47 @@ class LeadAgent:
     def __init__(self, llm_client: Optional[LLMClient] = None):
         self.agent_id = "lead_agent"
         self.llm_client = llm_client or LLMClient()
+        # Worker 角色画像（由 SwarmCoordinator 注入）；为空时回退到内置 3 个 Agent
+        self._worker_profiles: List[Dict[str, Any]] = []
 
-    def _get_system_prompt(self) -> str:
-        """获取系统提示词"""
-        return """你是医疗 Swarm 的 Lead Agent。你的职责是**分析问题并分配给合适的 Worker Agent**。
+    def set_worker_profiles(self, profiles: List[Dict[str, Any]]):
+        """
+        注入 Worker 角色画像，使「可用的 Worker Agents」段随 worker_pool 动态生成。
 
-**核心原则**：
-1. **尽量少分配任务**：能用 1 个 Agent 解决的，不要用 2 个；能用 2 个的，不要用 3 个
-2. **优先使用 ConsultationAgent**：对于常见病症（感冒、发烧、咳嗽等）、健康科普，单独使用 ConsultationAgent 就足够
-3. 你**只负责分配 Agent**，不决定具体使用哪些工具/技能（Worker Agent 会自己选择）
-4. 子任务应该相对独立，可以并行执行
+        每个 profile:
+        {
+            "agent_id": str,          # 写入 assigned_agent 的标识
+            "display": str,           # 展示名，如 "ConsultationAgent（健康咨询专家）"
+            "specialties": List[str], # 擅长
+            "scenarios": List[str],   # 适用场景
+        }
+        """
+        self._worker_profiles = profiles or []
 
----
+    def _render_worker_profiles(self) -> str:
+        """把 worker_pool 的角色画像渲染成提示词中的「可用的 Worker Agents」段。"""
+        if not self._worker_profiles:
+            return self._default_worker_section()
 
-## 可用的 Worker Agents
+        blocks = []
+        for i, p in enumerate(self._worker_profiles, 1):
+            lines = [f"### {i}. {p.get('display', p.get('agent_id', '未知 Agent'))}"]
+            lines.append(f"**Agent ID**：`{p.get('agent_id')}`")
+            specialties = p.get("specialties") or []
+            if specialties:
+                lines.append("**擅长**：")
+                lines.extend(f"- {s}" for s in specialties)
+            scenarios = p.get("scenarios") or []
+            if scenarios:
+                lines.append("**适用场景**：")
+                lines.extend(f"- {s}" for s in scenarios)
+            blocks.append("\n".join(lines))
+        return "\n\n---\n\n".join(blocks)
 
-### 1. ConsultationAgent（健康咨询专家）
+    def _default_worker_section(self) -> str:
+        """内置默认画像（未注入时回退，保持向后兼容）。"""
+        return """### 1. ConsultationAgent（健康咨询专家）
+**Agent ID**：`consultation_agent`
 **擅长**：
 - 常见疾病科普和健康建议
 - 症状初步评估和风险分级
@@ -66,6 +91,7 @@ class LeadAgent:
 ---
 
 ### 2. DiagnosticAgent（诊断推理专家）
+**Agent ID**：`diagnostic_agent`
 **擅长**：
 - 症状模式分析和关联性评估
 - 鉴别诊断推理
@@ -81,6 +107,7 @@ class LeadAgent:
 ---
 
 ### 3. ResearchAgent（循证医学专家）
+**Agent ID**：`research_agent`
 **擅长**：
 - 临床指南和诊疗规范检索
 - 最新医学研究和证据综合
@@ -91,7 +118,23 @@ class LeadAgent:
 - 需要权威指南（"高血压最新诊疗指南"）
 - 询问标准治疗方案（"糖尿病如何治疗"）
 - 需要最新医学进展
-- 需要循证医学证据支持
+- 需要循证医学证据支持"""
+
+    def _get_system_prompt(self) -> str:
+        """获取系统提示词"""
+        return """你是医疗 Swarm 的 Lead Agent。你的职责是**分析问题并分配给合适的 Worker Agent**。
+
+**核心原则**：
+1. **尽量少分配任务**：能用 1 个 Agent 解决的，不要用 2 个；能用 2 个的，不要用 3 个
+2. **优先使用 ConsultationAgent**：对于常见病症（感冒、发烧、咳嗽等）、健康科普，单独使用 ConsultationAgent 就足够
+3. 你**只负责分配 Agent**，不决定具体使用哪些工具/技能（Worker Agent 会自己选择）
+4. 子任务应该相对独立，可以并行执行
+
+---
+
+## 可用的 Worker Agents
+
+""" + self._render_worker_profiles() + """
 
 ---
 
@@ -312,39 +355,15 @@ class LeadAgent:
 
         return subtasks
 
-    async def wait_for_completion(
-        self,
-        shared_context: SharedContext,
-        timeout: float = 30.0
-    ) -> bool:
-        """
-        等待所有子任务完成
-
-        这不是"主动控制"，而是"被动等待"
-        Worker 自主完成任务，Lead 只是等待
-        """
-        import asyncio
-
-        start_time = asyncio.get_event_loop().time()
-
-        while True:
-            if shared_context.is_all_subtasks_completed():
-                logger.info("All subtasks completed")
-                return True
-
-            elapsed = asyncio.get_event_loop().time() - start_time
-            if elapsed > timeout:
-                logger.warning(f"Timeout waiting for subtasks ({timeout}s)")
-                return False
-
-            await asyncio.sleep(0.5)  # 每 0.5 秒检查一次
-
     async def synthesize_results(
         self,
         question: str,
         shared_context: SharedContext,
         timeout_occurred: bool = False,
-        context: Optional[Dict[str, Any]] = None
+        context: Optional[Dict[str, Any]] = None,
+        on_delta: Optional[Any] = None,
+        stream: bool = False,
+        stream_stats: Optional[StreamStats] = None,
     ) -> str:
         """
         汇总所有 Agent 的贡献，生成最终答案
@@ -445,9 +464,17 @@ class LeadAgent:
 """
 
         try:
-            response = await self.llm_client.chat([
-                {"role": "user", "content": synthesis_prompt}
-            ])
+            if on_delta is not None or stream:
+                # 汇总这一步是用户真正等待的生成：流式推字并取回 TTFT
+                response = await self.llm_client.chat_stream(
+                    messages=[{"role": "user", "content": synthesis_prompt}],
+                    on_delta=on_delta,
+                    stats=stream_stats,
+                )
+            else:
+                response = await self.llm_client.chat([
+                    {"role": "user", "content": synthesis_prompt}
+                ])
 
             return response
 

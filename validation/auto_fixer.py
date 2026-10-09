@@ -7,8 +7,34 @@
 - 自动修复（在可能的情况下）
 - 保持 Agent 输出质量
 """
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from loguru import logger
+
+# 风险等级判定复用约束模块的单一实现，避免两处各写一份关键词表
+try:
+    from constraints.validator import (
+        HIGH_RISK_SIGNALS,
+        RISK_ORDER,
+        needs_emergency_guidance,
+        normalize_risk_level,
+    )
+except Exception:  # 约束模块不可用时退化为本地兜底，保证自动修复仍可用
+    RISK_ORDER = {"low": 0, "medium": 1, "high": 2, "emergency": 3}
+    HIGH_RISK_SIGNALS = (
+        "胸痛", "呼吸困难", "昏厥", "剧烈头痛", "心悸", "突然视力模糊",
+        "意识模糊", "严重出血", "持续呕吐", "高热不退", "剧烈腹痛", "面部下垂",
+    )
+
+    def normalize_risk_level(level):  # type: ignore
+        if not isinstance(level, str):
+            return "low"
+        v = level.strip().lower()
+        return v if v in RISK_ORDER else "low"
+
+    def needs_emergency_guidance(answer):  # type: ignore
+        if not isinstance(answer, str) or not answer.strip():
+            return True
+        return not any(h in answer for h in ("就医", "急诊", "医院", "120"))
 
 
 class AutoFixer:
@@ -17,7 +43,8 @@ class AutoFixer:
     def fix_output(
         self,
         output: str,
-        auto_fixable: List[str]
+        auto_fixable: List[str],
+        risk_level: Optional[str] = None
     ) -> str:
         """
         自动修复输出
@@ -25,6 +52,7 @@ class AutoFixer:
         Args:
             output: 原始输出
             auto_fixable: 可修复的违规列表
+            risk_level: 结构化风险等级（low/medium/high/emergency），用于高危提醒判定
 
         Returns:
             修复后的输出
@@ -35,7 +63,7 @@ class AutoFixer:
             if fix_type == "add_disclaimer":
                 fixed_output = self.fix_missing_disclaimer(fixed_output)
             elif fix_type == "add_emergency_warning":
-                fixed_output = self.fix_high_risk_warning(fixed_output)
+                fixed_output = self.fix_high_risk_warning(fixed_output, risk_level=risk_level)
 
         if fixed_output != output:
             logger.info("🔧 输出已自动修复")
@@ -58,24 +86,27 @@ class AutoFixer:
         logger.debug("+ 自动添加免责声明")
         return output + disclaimer
 
-    def fix_high_risk_warning(self, output: str) -> str:
+    def fix_high_risk_warning(self, output: str, risk_level: Optional[str] = None) -> str:
         """
-        自动添加高危症状警告
+        自动添加高危情况警告
 
         Args:
             output: 原始输出
+            risk_level: 结构化风险等级。达到 high/emergency 时**无条件**补警告，
+                不再依赖"模型输出里是否恰好写了胸痛"这种关键词匹配——
+                后者会因为模型没复述症状而漏掉真正的高危场景。
 
         Returns:
             添加警告后的输出
         """
-        high_risk_keywords = ["胸痛", "呼吸困难", "昏厥", "剧烈头痛", "心悸", "突然视力模糊"]
+        level = normalize_risk_level(risk_level)
+        structural_high_risk = RISK_ORDER.get(level, 0) >= RISK_ORDER["high"]
+        keyword_high_risk = any(kw in output for kw in HIGH_RISK_SIGNALS)
 
-        # 检查是否包含高危症状且未建议就医
-        if any(kw in output for kw in high_risk_keywords):
-            if "就医" not in output and "急诊" not in output and "医院" not in output:
-                warning = "⚠️ **重要提醒**：您描述的症状可能提示严重问题，建议立即就医或拨打急救电话120，不要延误。\n\n"
-                logger.debug("+ 自动添加高危症状警告")
-                return warning + output
+        if (structural_high_risk or keyword_high_risk) and needs_emergency_guidance(output):
+            warning = "⚠️ **重要提醒**：您描述的情况可能提示严重问题，建议立即就医或拨打急救电话120，不要延误。\n\n"
+            logger.debug(f"+ 自动添加高危情况警告 (risk_level={level})")
+            return warning + output
 
         return output
 

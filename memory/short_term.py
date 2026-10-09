@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 import json
+import os
+import threading
 from loguru import logger
 
 # Harness Engineering: 熵管理
@@ -20,6 +22,39 @@ try:
 except ImportError:
     logger.warning("EntropyManager not found, running without entropy management")
     ENTROPY_ENABLED = False
+
+
+def estimate_tokens(text: str) -> int:
+    """粗估文本 token 数（无需引入分词依赖）。
+
+    中文/日文约 1 汉字 ≈ 1 token，英文约 4 字符 ≈ 1 token。
+    折中按 1.5 字符/token 估算；宁可高估（多留预算）不可低估。
+    """
+    if not text:
+        return 0
+    return max(1, int(len(text) / 1.5))
+
+
+def fit_history_to_budget(
+    messages: List[Dict[str, Any]],
+    max_tokens: int = 8000
+) -> List[Dict[str, Any]]:
+    """从消息尾部往前累加 token，返回预算内的消息（保最新、丢最旧）。
+
+    记忆的物理约束是 token（上下文窗口），不是消息条数：
+    50 条中文长消息可能占 3 万 token，而 5 条短消息可能只有 2000。
+    用 token 预算倒推，让"能装下多少轮"由预算决定，而不是拍脑袋定条数。
+    """
+    budget = max(200, int(max_tokens or 8000))
+    total = 0
+    keep: List[Dict[str, Any]] = []
+    for msg in reversed(messages):
+        total += estimate_tokens(str(msg.get("content") or ""))
+        if total > budget:
+            break
+        keep.append(msg)
+    keep.reverse()
+    return keep
 
 
 @dataclass
@@ -81,18 +116,24 @@ class ShortTermMemory:
     """
 
     _instance = None  # 单例实例
-    _lock = None  # 用于线程安全（如果需要）
+    # 单例创建与初始化必须加锁：Skill 现由线程池并发执行，
+    # 并发首次调用若不保护会重复初始化，把已建立的 sessions 清空
+    _instance_lock = threading.Lock()
 
     def __new__(cls, *args, **kwargs):
-        """单例模式：确保只有一个 ShortTermMemory 实例"""
+        """单例模式（线程安全，双重检查锁定）"""
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
         return cls._instance
 
     def __init__(
         self,
         storage_type: str = "memory",
-        redis_config: Optional[Dict[str, Any]] = None
+        redis_config: Optional[Dict[str, Any]] = None,
+        session_ttl_seconds: Optional[int] = None,
+        max_sessions: Optional[int] = None
     ):
         """
         初始化短期记忆管理器
@@ -100,15 +141,51 @@ class ShortTermMemory:
         Args:
             storage_type: 存储类型，"memory" 或 "redis"
             redis_config: Redis 配置（storage_type="redis" 时需要）
+            session_ttl_seconds: 内存后端会话空闲过期时间（秒），0 表示不过期
+            max_sessions: 内存后端最多保留的会话数，超出按最久未用淘汰
         """
-        # 防止重复初始化
-        if hasattr(self, '_initialized'):
-            return
+        # 防止重复初始化：锁覆盖整个初始化过程，
+        # 保证并发首次调用只有一个线程真正执行 _initialize()
+        with self._instance_lock:
+            if getattr(self, '_initialized', False):
+                return
+            self._initialize(
+                storage_type, redis_config, session_ttl_seconds, max_sessions
+            )
+            self._initialized = True
 
+    @staticmethod
+    def _env_int(name: str, default: int, override: Optional[int]) -> int:
+        """读取整数配置：显式入参 > 环境变量 > 默认值。"""
+        if override is not None:
+            return int(override)
+        try:
+            return int(os.getenv(name, str(default)))
+        except Exception:
+            return default
+
+    def _initialize(
+        self,
+        storage_type: str,
+        redis_config: Optional[Dict[str, Any]],
+        session_ttl_seconds: Optional[int],
+        max_sessions: Optional[int],
+    ):
+        """真正的初始化逻辑（由 __init__ 在锁内调用，请勿直接调用）"""
         self.storage_type = storage_type
         self.sessions: Dict[str, ConversationHistory] = {}
         self.redis_client = None
-        self._initialized = True
+
+        # 内存后端的容量与过期策略。
+        # 这两个上限是必需的：sessions 原本只增不删，生产跑一天就会 OOM。
+        # Redis 后端不需要手动淘汰——由 _save_to_redis 的 setex TTL 负责。
+        self.session_ttl_seconds = self._env_int(
+            "MEDIX_SESSION_TTL", 3600, session_ttl_seconds
+        )
+        self.max_sessions = self._env_int("MEDIX_MAX_SESSIONS", 1000, max_sessions)
+        # Skill 现在由线程池并发执行（search_history 会在工作线程读本对象），
+        # 而事件循环线程在写，因此读写 sessions 必须加锁。
+        self._lock = threading.RLock()
 
         # Harness Engineering: 熵管理器
         self.entropy_manager = MemoryEntropyManager() if ENTROPY_ENABLED else None
@@ -136,6 +213,49 @@ class ShortTermMemory:
         else:
             logger.info("ShortTermMemory initialized with in-memory storage")
 
+    # ===== 内存后端的过期与容量控制 =====
+    # sessions 原本只增不删，会话数会随请求量单调增长，最终 OOM。
+    # 这里补两层保护：空闲过期（TTL）+ 容量上限（按最久未用淘汰）。
+
+    def _is_expired(self, history: ConversationHistory, now: datetime) -> bool:
+        """会话是否已空闲超过 TTL。ttl<=0 表示不过期。"""
+        if self.session_ttl_seconds <= 0:
+            return False
+        return (now - history.last_updated).total_seconds() > self.session_ttl_seconds
+
+    def _evict_if_needed(self, reserve: int = 0) -> None:
+        """淘汰过期会话；仍超上限时按最久未用（LRU）淘汰。仅内存后端需要。
+
+        Args:
+            reserve: 预留的位置数。create_session 在写入前调用，需要预留 1 个，
+                否则淘汰发生在插入之前，稳态会变成 max_sessions + 1。
+        """
+        if self.storage_type != "memory" or self.max_sessions <= 0:
+            return
+
+        now = datetime.now()
+        expired = [
+            sid for sid, h in self.sessions.items() if self._is_expired(h, now)
+        ]
+        for sid in expired:
+            self.sessions.pop(sid, None)
+        if expired:
+            logger.debug(
+                f"Evicted {len(expired)} expired sessions (ttl={self.session_ttl_seconds}s)"
+            )
+
+        overflow = len(self.sessions) + reserve - self.max_sessions
+        if overflow > 0:
+            oldest = sorted(
+                self.sessions.items(), key=lambda kv: kv[1].last_updated
+            )[:overflow]
+            for sid, _ in oldest:
+                self.sessions.pop(sid, None)
+            logger.warning(
+                f"Session limit reached ({self.max_sessions}); "
+                f"evicted {len(oldest)} least-recently-used sessions"
+            )
+
     def create_session(
         self,
         session_id: str,
@@ -157,7 +277,10 @@ class ShortTermMemory:
         )
 
         if self.storage_type == "memory":
-            self.sessions[session_id] = history
+            with self._lock:
+                # reserve=1：给即将写入的会话预留位置
+                self._evict_if_needed(reserve=1)
+                self.sessions[session_id] = history
         elif self.storage_type == "redis" and self.redis_client:
             self._save_to_redis(history)
 
@@ -199,10 +322,19 @@ class ShortTermMemory:
             session_id: 会话ID
 
         Returns:
-            ConversationHistory 对象，如果不存在返回 None
+            ConversationHistory 对象，如果不存在或已过期返回 None
         """
         if self.storage_type == "memory":
-            return self.sessions.get(session_id)
+            with self._lock:
+                history = self.sessions.get(session_id)
+                if history is None:
+                    return None
+                # 惰性过期：读到才发现过期就顺手清掉，避免过期会话占着内存
+                if self._is_expired(history, datetime.now()):
+                    self.sessions.pop(session_id, None)
+                    logger.debug(f"Session expired and removed: {session_id}")
+                    return None
+                return history
         elif self.storage_type == "redis" and self.redis_client:
             return self._load_from_redis(session_id)
         return None
@@ -370,7 +502,8 @@ class ShortTermMemory:
             session_id: 会话ID
         """
         if self.storage_type == "memory":
-            self.sessions.pop(session_id, None)
+            with self._lock:
+                self.sessions.pop(session_id, None)
         elif self.storage_type == "redis" and self.redis_client:
             key = f"session:{session_id}"
             self.redis_client.delete(key)

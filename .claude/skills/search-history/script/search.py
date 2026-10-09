@@ -6,7 +6,10 @@ from typing import Dict, Any
 from loguru import logger
 
 
-async def search_history(session_id: str, limit: int = 10) -> Dict[str, Any]:
+# 注意：函数体全为同步阻塞调用（读短期记忆），没有任何 await。
+# 声明为同步函数后，SkillRegistry 会自动丢进线程池执行，不阻塞 event loop；
+# 切勿改回 async def，否则阻塞会串行化整个 Swarm。
+def search_history(session_id: str, limit: int = 10) -> Dict[str, Any]:
     """
     搜索当前会话的历史对话
 
@@ -89,19 +92,16 @@ def format_history(messages: list) -> str:
     return "\n".join(output)
 
 
-# 同步版本
+# 同步版本（函数本身已是同步，直接透传）
 def search_history_sync(session_id: str, limit: int = 10) -> Dict[str, Any]:
     """同步版本的搜索历史"""
-    import asyncio
-    return asyncio.run(search_history(session_id, limit))
+    return search_history(session_id, limit)
 
 
 if __name__ == "__main__":
     # 测试
-    import asyncio
-
     test_session_id = "test_session_123"
-    result = asyncio.run(search_history(test_session_id))
+    result = search_history(test_session_id)
 
     print("=" * 70)
     print(f"会话ID: {test_session_id}")

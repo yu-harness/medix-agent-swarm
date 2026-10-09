@@ -9,17 +9,28 @@ SwarmCoordinator：Swarm 入口和智能路由
 类比：交通信号灯，决定车辆走哪条路，但不控制车辆如何行驶
 """
 import asyncio
+import os
+import time
 import uuid
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from loguru import logger
 
 from core import LLMClient
+from core.llm_client import StreamStats
 from .shared_context import SharedContext
 from .lead_agent import LeadAgent
 from .events import Event, EventType
 from agents import ConsultationAgent, DiagnosticAgent, ResearchAgent
 from memory import SessionSummaryManager, SessionSummary, ShortTermMemory, LongTermMemory
+from memory.patient_profile import PatientProfile
+from memory.short_term import fit_history_to_budget, estimate_tokens
+from memory.running_summary import (
+    RunningSummaryManager,
+    split_history_by_budget,
+    generate_summary,
+)
+from constraints.validator import get_agent_role
 
 
 class SwarmCoordinator:
@@ -63,12 +74,25 @@ class SwarmCoordinator:
         self.session_manager = SessionSummaryManager()
         self.short_term_memory = ShortTermMemory(storage_type="memory")  # 或 "redis"
         self.long_term_memory = LongTermMemory()
+        # 患者档案：跨会话确定性事实（长期侧 L3）
+        self.patient_profile = PatientProfile(llm_client=self.llm_client)
+        # 运行摘要：短期侧 L2（触发式语义摘要，超预算时压缩最老消息）
+        self.running_summary = RunningSummaryManager()
+        # 短期记忆注入的 token 预算（物理约束是 token，不是条数）
+        self.history_max_tokens = int(os.getenv("MEDIX_HISTORY_MAX_TOKENS", "8000"))
+        # 运行摘要可占的 token 配额（给 L1 原文留出剩余空间）
+        self.summary_token_quota = min(2000, int(self.history_max_tokens * 0.25))
+        # 患者档案提取节流：每患者记录已提取的 user 消息数，避免每轮重复 LLM 提取
+        self._last_fact_user_msgs: Dict[str, int] = {}
 
         # 将短期记忆注入到所有 Worker Agent 的 Loop
         # 注意：LeadAgent 不继承 BaseAgent，没有 loop 属性，不需要注入
         for worker in self.worker_pool:
             if hasattr(worker, 'loop'):
                 worker.loop.short_term_memory = self.short_term_memory
+
+        # 让 LeadAgent 的"可用 Worker"提示词随 worker_pool 自动生成（新增 Worker 自动被识别）
+        self._sync_lead_worker_profiles()
 
         logger.info(f"SwarmCoordinator initialized with {len(self.worker_pool)} workers")
         logger.info(f"Memory system: short_term={self.short_term_memory.storage_type}, long_term={'enabled' if self.long_term_memory.enabled else 'disabled'}")
@@ -88,6 +112,85 @@ class SwarmCoordinator:
                     return [t]
         return subtasks
 
+    def _enforce_required_agents(
+        self,
+        subtasks: List[Dict[str, Any]],
+        question: str
+    ) -> List[Dict[str, Any]]:
+        """Harness 硬约束：问题命中 agent_selection_rules 时，强制确保对应 Agent 参与。
+
+        这是纯规则、零 LLM 依赖：即使 LeadAgent 只把高危问题分给了
+        consultation_agent，也必须在路由前补上 diagnostic_agent 的风险评估——
+        不能指望模型"自觉"把危险症状交给正确的 Agent。
+
+        - 开启 Swarm 时：补一个必需 Agent 的子任务（自然触发多 Agent 协作）
+        - 单 Agent 模式：把第一个子任务改派给必需 Agent（高危 → diagnostic）
+        """
+        try:
+            from constraints.validator import get_required_agents
+            required = get_required_agents(question)
+        except Exception as e:
+            logger.warning(f"get_required_agents failed (skip enforcement): {e}")
+            return subtasks
+        if not required:
+            return subtasks
+
+        assigned = {t.get("assigned_agent") for t in subtasks}
+        missing = [a for a in required if a not in assigned]
+        if not missing:
+            return subtasks
+
+        if self.enable_swarm:
+            # 多 Agent 可用：补必需 Agent 的子任务 → 该问题必然走 Swarm
+            for agent_id in missing:
+                subtasks.append({
+                    "type": f"{agent_id}_task",
+                    "description": self._forced_subtask_desc(agent_id, question),
+                    "assigned_agent": agent_id,
+                })
+                logger.warning(
+                    f"安全规则强制加入 Agent: {agent_id}（问题命中高危/关键词约束）"
+                )
+        else:
+            # 单 Agent 模式：把已有任务改派给必需的 Agent
+            if subtasks:
+                first = subtasks[0]
+                required_agent = missing[0]
+                first["assigned_agent"] = required_agent
+                first["description"] = self._forced_subtask_desc(
+                    required_agent, question
+                )
+                logger.warning(
+                    f"单 Agent 模式：高危/关键词约束将任务改派给 {required_agent}"
+                )
+            else:
+                required_agent = missing[0]
+                subtasks.append({
+                    "type": f"{required_agent}_task",
+                    "description": self._forced_subtask_desc(
+                        required_agent, question
+                    ),
+                    "assigned_agent": required_agent,
+                })
+        return subtasks
+
+    @staticmethod
+    def _forced_subtask_desc(agent_id: str, question: str) -> str:
+        """为强制加入的子任务生成描述。"""
+        head = (question or "")[:50]
+        if agent_id == "diagnostic_agent":
+            return (
+                f"对「{head}」进行症状风险等级评估与模式分析，"
+                "明确严重程度与是否需要立即就医"
+                "（本子任务由安全规则强制加入，不允许删除）"
+            )
+        if agent_id == "research_agent":
+            return (
+                f"检索「{head}」相关的权威指南或最新循证证据"
+                "（本子任务由安全规则强制加入，不允许删除）"
+            )
+        return f"处理问题「{head}」（本子任务由安全规则强制加入，不允许删除）"
+
     def _ensure_anchor_in_subtasks(
         self,
         subtasks: List[Dict[str, Any]],
@@ -104,20 +207,68 @@ class SwarmCoordinator:
             t["description"] = f"{prefix}。{desc}" if desc else prefix
         return subtasks
 
+    def _sync_lead_worker_profiles(self):
+        """
+        把当前 worker_pool 的角色画像同步给 LeadAgent，
+        使其「可用的 Worker Agents」提示词随 worker_pool 自动生成。
+        画像来源：constraints/agent_constraints.yaml 的 role 块（单一来源），
+        缺失时用 capabilities / agent_id 兜底，保证新 Worker 至少可被识别。
+        """
+        profiles = []
+        for worker in self.worker_pool:
+            agent_id = getattr(worker, 'agent_id', None)
+            if not agent_id:
+                continue
+            role = get_agent_role(agent_id)
+            capabilities = []
+            if hasattr(worker, 'get_capabilities'):
+                try:
+                    capabilities = worker.get_capabilities() or []
+                except Exception:
+                    capabilities = []
+            profiles.append({
+                "agent_id": agent_id,
+                "display": role.get("display") or agent_id,
+                "specialties": role.get("specialties") or capabilities,
+                "scenarios": role.get("scenarios") or [],
+            })
+        self.lead_agent.set_worker_profiles(profiles)
+        logger.info(f"LeadAgent worker profiles synced: {[p['agent_id'] for p in profiles]}")
+
+    def register_worker(self, worker: Any):
+        """
+        注册一个新的 Worker Agent（运行时/扩展点）。
+
+        只需把 Worker 实例传进来即可：
+        - 自动加入 worker_pool（参与并行认领）
+        - 自动注入短期记忆
+        - 自动同步 LeadAgent 的「可用 Worker」提示词（新 Worker 立即可被分配任务）
+        - _get_agent_by_id 动态遍历 worker_pool，无需再改映射
+
+        注意：Worker 的角色画像（display/specialties/scenarios）来自
+        constraints/agent_constraints.yaml 的 agents.<agent_id>.role；
+        若 yaml 未配置，则回退用 capabilities/agent_id，保证至少可被 LeadAgent 识别。
+        """
+        if hasattr(worker, 'loop'):
+            worker.loop.short_term_memory = self.short_term_memory
+        self.worker_pool.append(worker)
+        self._sync_lead_worker_profiles()
+        logger.info(f"Registered new worker: {getattr(worker, 'agent_id', '?')}")
+
     def _get_agent_by_id(self, agent_id: str):
-        """根据 agent_id 返回对应的 Agent 实例"""
-        mapping = {
-            "consultation_agent": self.consultation_agent,
-            "diagnostic_agent": self.diagnostic_agent,
-            "research_agent": self.research_agent
-        }
-        return mapping.get(agent_id)
+        """根据 agent_id 返回对应的 Agent 实例（动态遍历 worker_pool，新增 Worker 自动生效）"""
+        for worker in self.worker_pool:
+            if getattr(worker, 'agent_id', None) == agent_id:
+                return worker
+        return None
 
     async def process(
         self,
         question: str,
         context: Optional[Dict[str, Any]] = None,
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        on_delta: Optional[Any] = None,
+        stream: bool = False
     ) -> Dict[str, Any]:
         """
         处理用户问题
@@ -126,9 +277,11 @@ class SwarmCoordinator:
             question: 用户问题
             context: 额外上下文（年龄、既往史等）
             session_id: 会话ID（如果不提供，将自动生成）
+            on_delta: 正文增量回调；传入即对流经用户的最终生成启用流式
+            stream: 为 True 时也启用流式（只取 TTFT 指标，不对外吐字）
 
         Returns:
-            处理结果
+            处理结果；流式时带 answer_ttft_ms
         """
         start_time = datetime.now()
         if session_id is None:
@@ -136,11 +289,61 @@ class SwarmCoordinator:
 
         logger.info(f"Processing question (session={session_id}): {question[:50]}...")
 
+        # 患者档案键：优先 user_id（api/app.py 已透传），缺失时退化为 session_id
+        patient_id = (context or {}).get("user_id") or session_id
+
+        # Mem0 记忆空间键：仅显式 user_id 时按用户隔离；
+        # 缺省（demo/eval/旧调用）回落全局共享空间 "medix_user"，保持单用户原行为
+        mem_user_id = (context or {}).get("user_id") or "medix_user"
+
         # ===== 统一的记忆检索（所有模式都使用）=====
         # 1. 检索短期记忆（当前会话历史）+ 用户主诉轮次（抗 Swarm 污染）
+        #    先取原始上限 200 条（熵管理已压缩/去重），再按 token 预算倒推截断——
+        #    记忆的物理约束是 token 而不是条数。
         recent_history = self.short_term_memory.get_recent_messages(
             session_id=session_id,
-            limit=50
+            limit=200
+        )
+
+        # 1.2 L2 运行摘要：历史超预算时，把"最老、超出预算"的消息压缩为语义摘要。
+        #     摘要走独立注入通道，与 L1 原文、L3 患者档案互不冲突（白名单天然跳过压缩）。
+        running_summary_block = ""
+        if recent_history:
+            raw_cost = sum(
+                estimate_tokens(str(m.get("content") or ""))
+                for m in recent_history
+            )
+            if raw_cost > self.history_max_tokens:
+                excess_history, recent_history = split_history_by_budget(
+                    recent_history,
+                    self.history_max_tokens - self.summary_token_quota,
+                )
+                if excess_history:
+                    running_summary_block = self.running_summary.get(session_id)
+                    # 节流：会话出现新的 user 消息才重新生成（短超时，失败不阻塞主路径）
+                    session_hist = self.short_term_memory.get_session(session_id)
+                    user_count = (
+                        len([m for m in session_hist.messages if m.get("role") == "user"])
+                        if session_hist else 0
+                    )
+                    if self.running_summary.should_regenerate(session_id, user_count):
+                        try:
+                            running_summary_block = await asyncio.wait_for(
+                                generate_summary(
+                                    self.llm_client,
+                                    running_summary_block,
+                                    excess_history,
+                                ),
+                                timeout=2.5,
+                            )
+                            self.running_summary.set(
+                                session_id, running_summary_block, user_count
+                            )
+                        except Exception as e:
+                            logger.warning(f"running summary skipped: {type(e).__name__}")
+
+        recent_history = fit_history_to_budget(
+            recent_history, self.history_max_tokens
         )
         prior_turns = self.short_term_memory.get_user_turns(session_id)
 
@@ -152,6 +355,7 @@ class SwarmCoordinator:
                     self.long_term_memory.search_similar_sessions,
                     question,
                     3,
+                    user_id=mem_user_id,
                 ),
                 timeout=2.0,
             )
@@ -177,6 +381,24 @@ class SwarmCoordinator:
                 f"session_anchor={session_anchor[:80] if session_anchor else '(empty)'}"
             )
 
+        # 3.5 患者档案注入（长期侧 L3）：白名单强制（过敏/当前用药）+ 其余按相关性筛选
+        try:
+            patient_facts_block = self.patient_profile.build_injection_block(
+                patient_id, question
+            )
+            if patient_facts_block:
+                enhanced_context["patient_facts"] = patient_facts_block
+                logger.info(f"patient_facts injected (patient={patient_id}): {patient_facts_block[:100]}")
+        except Exception as e:
+            logger.warning(f"patient profile injection skipped: {e}")
+
+        # 3.6 运行摘要注入（L2）：仅在本会话历史超预算时携带（更早轮次的背景）
+        if running_summary_block:
+            enhanced_context["running_summary"] = running_summary_block
+            logger.info(
+                f"running_summary injected (session={session_id}): {running_summary_block[:60]}"
+            )
+
         # 记录本轮原始用户问题（供后续轮次抽锚点；须在抽锚点之后）
         self.short_term_memory.record_user_question(session_id, question)
 
@@ -192,11 +414,18 @@ class SwarmCoordinator:
             logger.info(f"Found {len(similar_memories)} similar historical cases from long-term memory")
 
         # Step 1: LeadAgent 分解任务
+        t_lead = time.perf_counter()
         assessment = await self.lead_agent.assess_and_decompose(question, enhanced_context)
+        # 观测：各环节耗时（配合 trace_id 定位性能瓶颈）
+        timings: Dict[str, Any] = {
+            "lead_decompose_ms": round((time.perf_counter() - t_lead) * 1000, 1),
+        }
         subtasks = self._collapse_subtasks(assessment.get("subtasks", []), question)
         session_anchor = enhanced_context.get("session_anchor") or ""
         if session_anchor:
             subtasks = self._ensure_anchor_in_subtasks(subtasks, session_anchor)
+        # Harness 硬约束：高危症状等必须包含指定 Agent（不依赖 LLM 分解自觉）
+        subtasks = self._enforce_required_agents(subtasks, question)
         assessment["subtasks"] = subtasks
 
         logger.info(f"LeadAgent 分解任务：{len(subtasks)} 个")
@@ -218,11 +447,17 @@ class SwarmCoordinator:
 
             logger.info(f"Route: Single Agent ({agent_id})")
             mode = "single_agent"
-            result = await agent.process({
-                'question': question,
-                'context': enhanced_context,
-                'session_id': session_id
-            })
+            t_agent = time.perf_counter()
+            result = await agent.process(
+                {
+                    'question': question,
+                    'context': enhanced_context,
+                    'session_id': session_id
+                },
+                on_delta=on_delta,
+                stream=stream,
+            )
+            timings[f"agent_{agent_id}_ms"] = round((time.perf_counter() - t_agent) * 1000, 1)
             final_answer = result.get('answer', '')
 
             result.update({
@@ -246,27 +481,65 @@ class SwarmCoordinator:
                 context=enhanced_context,
                 assessment=assessment,
                 session_id=session_id,
-                start_time=start_time
+                start_time=start_time,
+                on_delta=on_delta,
+                stream=stream
             )
             final_answer = result.get('answer', '')
+
+            # 观测：合并 Lead 分解耗时到 Swarm 内部耗时
+            result.setdefault("timings", {})
+            result["timings"]["lead_decompose_ms"] = timings["lead_decompose_ms"]
+            logger.info(f"trace timings: {result['timings']}")
 
             # Swarm 模式已经在 _process_with_swarm 中保存了长期记忆，直接返回
             return result
 
         else:
-            # 0个任务或Swarm关闭 → 降级到 ConsultationAgent
+            # 0 个子任务或 Swarm 未开启 → 单 Agent 处理
             if len(subtasks) == 0:
                 logger.warning("No subtasks generated, fallback to ConsultationAgent")
                 mode = "fallback"
+                agent = self.consultation_agent
             else:
-                logger.info("Swarm disabled, fallback to ConsultationAgent")
+                # Swarm 未开启但有多个子任务：不再无条件 consultation。
+                # 优先选安全规则要求的 Agent（高危→diagnostic），其次选第一个子任务指定的
+                # Agent——否则 _enforce_required_agents 刚补上的 diagnostic 子任务
+                # 会被这里无脑降级回 consultation，形成安全缺口。
+                logger.info(
+                    f"Swarm disabled ({len(subtasks)} subtasks), routing to single agent"
+                )
                 mode = "disabled_swarm"
+                try:
+                    from constraints.validator import get_required_agents
+                    required = get_required_agents(question)
+                except Exception:
+                    required = []
+                preferred = (
+                    required[0]
+                    if required
+                    else subtasks[0].get("assigned_agent")
+                )
+                agent = self._get_agent_by_id(preferred) or self.consultation_agent
+                if getattr(agent, "agent_id", None) != preferred:
+                    logger.warning(
+                        f"Preferred agent {preferred} not found, "
+                        f"fallback to {getattr(agent, 'agent_id', '?')}"
+                    )
 
-            result = await self.consultation_agent.process({
-                'question': question,
-                'context': enhanced_context,
-                'session_id': session_id
-            })
+            t_agent = time.perf_counter()
+            result = await agent.process(
+                {
+                    'question': question,
+                    'context': enhanced_context,
+                    'session_id': session_id
+                },
+                on_delta=on_delta,
+                stream=stream,
+            )
+            timings[f"agent_{agent.agent_id}_ms"] = round(
+                (time.perf_counter() - t_agent) * 1000, 1
+            )
             final_answer = result.get('answer', '')
             result.update({
                 'swarm_enabled': False,
@@ -275,6 +548,10 @@ class SwarmCoordinator:
             result['disclaimer'] = self._resolve_disclaimer(
                 final_answer, result.get('disclaimer'), timeout_occurred=False
             )
+
+        # 观测：非 Swarm 路径输出分环节耗时（Swarm 路径已在分支内合并）
+        result["timings"] = timings
+        logger.info(f"trace timings: {timings}")
 
         # ===== 统一的记忆保存（非 Swarm 模式）=====
         end_time = datetime.now()
@@ -287,17 +564,51 @@ class SwarmCoordinator:
                 session_id=session_id,
                 question=question,
                 answer=final_answer,
+                user_id=mem_user_id,
                 metadata={
                     "mode": mode,
                     "subtasks_count": len(subtasks),
                     "total_time": (end_time - start_time).total_seconds(),
                 }
             )
-            logger.info(f"Saved to long-term memory (session={session_id}, mode={mode})")
+            logger.info(
+                f"Saved to long-term memory (session={session_id}, mode={mode}, user={mem_user_id})"
+            )
         except Exception as e:
             logger.error(f"Failed to save to long-term memory: {e}")
 
+        # 提取并更新患者档案（长期确定性事实；短超时，失败不阻塞主路径）
+        await self._update_patient_facts(patient_id, session_id)
+
         return result
+
+    async def _update_patient_facts(self, patient_id: str, session_id: str) -> None:
+        """从本会话 user 消息提取并更新患者档案（节流 + 短超时）。"""
+        if not patient_id:
+            return
+        try:
+            history = self.short_term_memory.get_session(session_id)
+            user_msgs = (
+                [m for m in history.messages if m.get("role") == "user"]
+                if history else []
+            )
+            if not user_msgs:
+                return
+            # 节流：只有本会话出现新的 user 消息才重新提取，避免每轮重复 LLM 调用
+            n = len(user_msgs)
+            if n <= self._last_fact_user_msgs.get(patient_id, 0):
+                return
+            added = await asyncio.wait_for(
+                self.patient_profile.extract_and_update(patient_id, user_msgs),
+                timeout=3.0,
+            )
+            self._last_fact_user_msgs[patient_id] = n
+            if added:
+                logger.info(
+                    f"Patient profile updated: +{added} facts (patient={patient_id})"
+                )
+        except Exception as e:
+            logger.warning(f"Patient profile extraction skipped: {type(e).__name__}")
 
     async def _process_with_swarm(
         self,
@@ -305,7 +616,9 @@ class SwarmCoordinator:
         context: Optional[Dict[str, Any]],
         assessment: Dict[str, Any],
         session_id: str,
-        start_time: datetime
+        start_time: datetime,
+        on_delta: Optional[Any] = None,
+        stream: bool = False
     ) -> Dict[str, Any]:
         """
         使用 Swarm 处理复杂问题
@@ -322,9 +635,11 @@ class SwarmCoordinator:
         shared_context.set_data("user_question", question)
         shared_context.set_data("user_context", context or {})
 
-        # 附加 SharedContext 到所有 Worker
-        for worker in self.worker_pool:
-            worker.attach_shared_context(shared_context)
+        # 并发安全说明：不再将 SharedContext 附加到共享 Worker 实例
+        # （即不再写入单例 worker 的 self.shared_context 字段）。
+        # 改为在调用 worker.process_subtask 时以「依赖注入」方式传入，
+        # 使每个请求的黑板随调用栈走，从根上消除多请求并发时的串台。
+        # 参见下方 _execute_single_subtask 的传参。
 
         # 发布 Swarm 启动事件
         shared_context.publish_event(Event(
@@ -370,12 +685,19 @@ class SwarmCoordinator:
 
         # Step 3: LeadAgent 汇总结果
         # 即使超时，也尝试汇总已完成的部分结果
+        t_synth = time.perf_counter()
+        # 推给前端的是 Lead 汇总这一层——worker 的中间结果是过程，不是答案
+        synth_stats = StreamStats() if (on_delta is not None or stream) else None
         final_answer = await self.lead_agent.synthesize_results(
             question=question,
             shared_context=shared_context,
             timeout_occurred=timeout_occurred,
-            context=context
+            context=context,
+            on_delta=on_delta,
+            stream=stream,
+            stream_stats=synth_stats,
         )
+        answer_ttft_ms = synth_stats.ttft_ms if synth_stats else None
 
         end_time = datetime.now()
 
@@ -407,11 +729,15 @@ class SwarmCoordinator:
 
         # 保存到 Mem0 长期记忆
         try:
+            # 记忆空间键：enhanced_context 已含 user_id；缺省回落全局共享（demo/eval 兼容）
+            mem_user_id = (context or {}).get("user_id") or "medix_user"
+
             # 保存会话总结
             self.long_term_memory.add_session_summary(
                 session_id=session_id,
                 question=question,
                 answer=final_answer,
+                user_id=mem_user_id,
                 metadata={
                     "mode": "swarm",
                     "agents_count": len(shared_context.agent_contributions),
@@ -420,10 +746,17 @@ class SwarmCoordinator:
                 }
             )
 
-            logger.info(f"Saved to Mem0 long-term memory (session={session_id})")
+            logger.info(
+                f"Saved to Mem0 long-term memory (session={session_id}, user={mem_user_id})"
+            )
 
         except Exception as e:
             logger.error(f"Failed to save to Mem0: {e}")
+
+        # 提取并更新患者档案（长期确定性事实）
+        await self._update_patient_facts(
+            (context or {}).get("user_id") or session_id, session_id
+        )
 
         # 发布 Swarm 完成事件
         shared_context.publish_event(Event(
@@ -437,6 +770,15 @@ class SwarmCoordinator:
 
         # 返回结果
         completed_agents = list(shared_context.agent_contributions.keys())
+        # 观测：各 Worker 执行耗时（来自子任务时间戳）
+        worker_timings: Dict[str, Any] = {}
+        for subtask in shared_context.task_decomposition.values():
+            if subtask.started_at and subtask.completed_at:
+                owner = getattr(subtask, "assigned_agent", None) or "unknown"
+                ms = (subtask.completed_at - subtask.started_at).total_seconds() * 1000
+                worker_timings[f"agent_{owner}_ms"] = max(
+                    worker_timings.get(f"agent_{owner}_ms", 0.0), ms
+                )
         result = {
             'answer': final_answer,
             'swarm_enabled': True,
@@ -444,8 +786,16 @@ class SwarmCoordinator:
             'agents_involved': completed_agents,
             'subtasks_completed': len(shared_context.get_all_completed_subtasks()),
             'total_time': (end_time - start_time).total_seconds(),
+            # 流式指标：answer_ttft_ms 是 Lead 汇总这次生成的首 token 时间
+            'streamed': bool(on_delta is not None or stream),
+            'answer_ttft_ms': answer_ttft_ms,
             'swarm_metadata': shared_context.get_summary(),
-            'timeout_occurred': timeout_occurred
+            'timeout_occurred': timeout_occurred,
+            'timings': {
+                **worker_timings,
+                "synthesize_ms": round((time.perf_counter() - t_synth) * 1000, 1),
+                "swarm_total_ms": round((end_time - start_time).total_seconds() * 1000, 1),
+            },
         }
 
         result['suggestions'] = self._extract_suggestions(final_answer)
@@ -503,7 +853,7 @@ class SwarmCoordinator:
     async def _execute_single_subtask(self, worker, subtask, shared_context):
         """执行单个子任务"""
         try:
-            result = await worker.process_subtask(subtask)
+            result = await worker.process_subtask(subtask, shared_context)
             shared_context.complete_subtask(subtask.id, worker.agent_id, result)
             logger.info(f"{worker.agent_id}: Completed {subtask.type}")
         except Exception as e:
@@ -569,7 +919,10 @@ async def process_with_swarm(
     question: str,
     context: Optional[Dict[str, Any]] = None,
     enable_swarm: bool = True,
-    session_id: Optional[str] = None
+    session_id: Optional[str] = None,
+    trace_id: Optional[str] = None,
+    on_delta: Optional[Any] = None,
+    stream: bool = False
 ) -> Dict[str, Any]:
     """
     便捷函数：使用 Swarm 处理问题
@@ -579,9 +932,35 @@ async def process_with_swarm(
         context: 额外上下文
         enable_swarm: 是否启用 Swarm（False 则总是用单 Agent）
         session_id: 会话ID（如果提供，将使用该ID而不是生成新的）
+        trace_id: 链路追踪 ID（不传则自动生成，贯穿整条调用链）
 
     Returns:
-        处理结果
+        处理结果（含 trace_id 与 timings）
     """
+    trace_id = trace_id or uuid.uuid4().hex[:12]
     coordinator = get_shared_coordinator(enable_swarm=enable_swarm)
-    return await coordinator.process(question, context, session_id=session_id)
+    # loguru.contextualize：本请求内所有日志自动携带 trace_id。
+    # Python 3.12+ 的 asyncio.run_in_executor 会把 contextvars 传播进线程池，
+    # 因此连 Skill 线程里的日志也能带上 trace_id，实现端到端贯穿。
+    with logger.contextualize(trace_id=trace_id, session_id=session_id or "-"):
+        logger.info(
+            f"trace start: enable_swarm={enable_swarm} "
+            f"question_len={len(question) if question else 0}"
+        )
+        t0 = time.perf_counter()
+        result = await coordinator.process(
+            question,
+            context,
+            session_id=session_id,
+            on_delta=on_delta,
+            stream=stream,
+        )
+        result["trace_id"] = trace_id
+        result["total_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+        logger.info(
+            f"trace end: total_ms={result.get('total_ms')} "
+            f"swarm_enabled={result.get('swarm_enabled')} "
+            f"agents={result.get('agents_involved')} "
+            f"timings={result.get('timings')}"
+        )
+    return result
