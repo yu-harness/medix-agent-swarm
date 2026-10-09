@@ -14,6 +14,10 @@ redis==5.2.0
 
 # 向量数据库（Milvus）
 pymilvus>=2.3.0
+# 本地文件模式（Milvus Lite）：pymilvus **不会**自动带上它，
+# 缺了会在开库时报 "Open local milvus failed / No module named 'milvus_lite'"。
+# 仅 Linux / macOS 提供 wheel；Windows 请连真实 Milvus 服务（或用 WSL）。
+milvus-lite>=2.4.0; sys_platform != "win32"
 # sentence-transformers 已在上方定义
 
 # 搜索和研究

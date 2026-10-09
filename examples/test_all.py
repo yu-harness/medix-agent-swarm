@@ -11,6 +11,8 @@ import asyncio
 import sys
 from pathlib import Path
 from datetime import datetime
+
+import pytest
 from loguru import logger
 
 project_root = Path(__file__).parent.parent
@@ -28,6 +30,13 @@ try:
 except ImportError:
     HARNESS_AVAILABLE = False
     logger.warning("Harness Engineering modules not available")
+
+
+# 本模块是**需要真实 LLM API 与网络**的端到端演示脚本（会真的调模型、真的等返回），
+# 不属于可重复的离线单测：无密钥必然失败，有密钥则每次烧钱。
+# 因此整体标记为 live，pytest.ini 默认 `-m "not live"` 排除；
+# 本地要跑就显式 `pytest -m live`，或直接 `python examples/test_all.py`。
+pytestmark = pytest.mark.live
 
 # 配置日志
 logger.remove()

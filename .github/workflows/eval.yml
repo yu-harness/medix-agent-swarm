@@ -54,7 +54,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements.txt
-          pip install pytest
+          # 显式装测试依赖：pytest-asyncio 决定裸 async 测试是跑还是报错，
+          # 不能依赖「某条依赖顺手带上」，否则版本一变 CI 行为就变
+          pip install pytest pytest-asyncio
 
       # config.py 被 .gitignore 排除（含密钥），CI 里用示例配置现造一份
       - name: Prepare local config
