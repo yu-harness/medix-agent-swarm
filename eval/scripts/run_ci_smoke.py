@@ -339,6 +339,43 @@ def _gate1_safety(rep: Report) -> None:
         detail,
     )
 
+    # --- 1j 换行 / 表格保真：清洗绝不压缩正文换行 ---
+    multi_blank = (
+        "结论如下：\n\n\n\n"
+        "| 人群 | 目标 |\n| --- | --- |\n| 一般高血压 | <140/90 mmHg |\n\n\n"
+        "【免责声明】\n仅供参考，不能替代医生诊断。"
+    )
+    out_mb = sanitize(stub, multi_blank)
+    rep.add(
+        "G1", "清洗不压缩正文换行与空行", out_mb == multi_blank,
+        "4 连空行 + 表格 + 尾部空行全部原样保留" if out_mb == multi_blank
+        else f"换行被改写（差 {len(multi_blank) - len(out_mb)} 字）",
+    )
+
+    ranges = "老年（65~79岁）与 65～79岁、60-79 岁人群目标值不同，65~79 岁老年人推荐 <150/90 mmHg。"
+    out_r = sanitize(stub, ranges)
+    rep.add(
+        "G1", "清洗保留区间连接符（~ / ～ / -）", out_r == ranges,
+        "数字区间的连接符一字未动" if out_r == ranges else "连接符被改写",
+    )
+
+    # --- 1k 风险信号：只由提问判定，且确实送到了前端 ---
+    from constraints.validator import detect_high_risk_signals as _dhrs
+
+    benign_q = "高血压患者的降压目标值是多少？"
+    risky_q = "突然剧烈胸痛，还冒冷汗"
+    benign_ok = not _dhrs(benign_q)
+    risky_ok = bool(_dhrs(risky_q))
+    api_src = (ROOT / "api" / "app.py").read_text(encoding="utf-8")
+    web_src = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+    wired = '"risk_level"' in api_src and "shouldShowRiskBanner" in web_src and "isHighRisk(" not in web_src
+    rep.add(
+        "G1", "风险等级由提问判定且已接线到前端",
+        benign_ok and risky_ok and wired,
+        f"普通咨询={'低危' if benign_ok else '误报'}｜急症={'高危' if risky_ok else '漏报'}"
+        f"｜SSE 透出与前端绑定={'已接线' if wired else '未接线'}",
+    )
+
 
 # ---------------------------------------------------------------- G2 检索召回
 

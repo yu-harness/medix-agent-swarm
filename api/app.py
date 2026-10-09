@@ -195,7 +195,10 @@ async def chat_stream(body: ChatRequest):
     事件类型：
     - status: 协作阶段（由真实 Span 记录推导，见 _status_from_spans），用于前端状态胶囊
     - delta:  {"text": "..."}  答案片段，边生成边推
-    - done:   答案、TTFT、耗时、Token 与费用账单等元信息
+    - done:   答案、TTFT、耗时、Token 与费用账单等元信息；
+              其中 risk_level / risk_signals 由**用户提问**判定（detect_high_risk_signals），
+              是前端红旗急症横幅的唯一权威依据 —— 不能用答案里的「急诊/120」字样判断，
+              否则普通指标咨询（答案含「若伴胸痛请急诊」这类转诊提示）会被误报。
     - error:  {"message": "..."}
 
     client_ttft_ms 是从收到请求到第一个片段到达客户端的时间，即用户感知的响应时间；
@@ -300,6 +303,11 @@ async def chat_stream(body: ChatRequest):
                         "timings": payload.get("timings"),
                         # 成本归因：本次请求的 Token 与费用账单（按阶段明细）
                         "usage_and_cost": payload.get("usage_and_cost"),
+                        # 风险信号：前端红旗横幅的唯一权威判据。
+                        # 注意 done 是**白名单**，不显式列出就不会被带出去
+                        # （非流式 /v1/chat 走 ChatResponse.extra 自动透出）。
+                        "risk_level": payload.get("risk_level"),
+                        "risk_signals": payload.get("risk_signals"),
                     })
         finally:
             if not producer.done():

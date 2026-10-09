@@ -61,8 +61,11 @@ _META_SECTION = "【文献检索结果】"
 _META_HINTS = ("关键词", "找到相关文献", "检索词", "检索结果", "相关文献")
 # 下一节标记（【证据摘要】【综合评估】等），元数据头到此为止
 _NEXT_SECTION = re.compile(r"【[^】\n]{2,16}】")
-# 孤立的分隔线：整行只有 --- / *** / ___ （markdown 表格分隔行含 | ，不会被匹配）
-_ISOLATED_RULE = re.compile(r"^[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t]*$\n?", re.M)
+# 孤立的分隔线：整行只有 --- / *** / ___。
+# 这里只做「单行内容」判定（不含换行），删除时由调用方逐行处理并做**表格感知**——
+# 因为 markdown 表格的分隔行也可能整行只有连字符（如单列表格的 `---`），
+# 一旦误删就会把表格结构打断、渲染成压平的一坨文本。
+_ISOLATED_RULE_LINE = re.compile(r"^[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t]*$")
 # 模型偶尔在节标记前多写一个 markdown 标题号：# 【综合评估】 → 【综合评估】
 _STRAY_HASH = re.compile(r"^([ \t]*)#{1,6}[ \t]*(?=【)", re.M)
 # 元数据头最多吃掉的字符数，防止在没有下一节标记时误吞正文
@@ -501,6 +504,12 @@ class SwarmCoordinator:
         final_answer = None
         mode = None
 
+        # 风险等级**只由用户提问判定**，并随 result 透出（api 层会自动放进 SSE done.extra）。
+        # 前端红旗横幅必须绑这个信号，不能拿答案文本里的「急诊 / 120」当判据——
+        # 普通指标咨询的答案常含「若伴胸痛请急诊」这类转诊提示，会被误判成急症而误报警。
+        risk_signals = detect_high_risk_signals(question)
+        risk_level = "high" if risk_signals else "low"
+
         if len(subtasks) == 1:
             # 单任务 → 直接调用对应 Agent
             task = subtasks[0]
@@ -569,6 +578,9 @@ class SwarmCoordinator:
             result.setdefault("timings", {})
             result["timings"]["lead_decompose_ms"] = timings["lead_decompose_ms"]
             logger.info(f"trace timings: {result['timings']}")
+
+            result["risk_level"] = risk_level
+            result["risk_signals"] = risk_signals
 
             # Swarm 模式已经在 _process_with_swarm 中保存了长期记忆，直接返回
             return result
@@ -640,6 +652,10 @@ class SwarmCoordinator:
 
         # 观测：非 Swarm 路径输出分环节耗时（Swarm 路径已在分支内合并）
         result["timings"] = timings
+        # 风险信号在这里统一注入：两条非 Swarm 出口（single_agent / disabled_swarm）
+        # 都会汇到这段公共尾部，放这里就不必在两处重复，也不会漏掉任何一条出口。
+        result["risk_level"] = risk_level
+        result["risk_signals"] = risk_signals
         logger.info(f"trace timings: {timings}")
 
         # ===== 统一的记忆保存（非 Swarm 模式）=====
@@ -709,10 +725,16 @@ class SwarmCoordinator:
         2. 删掉孤立成行的 `---` / `***` / `___`（纯装饰；markdown 表格分隔行含 `|`，不受影响）。
         附带一个窄修正：节标记前多写的 markdown 标题号（`# 【综合评估】` → `【综合评估】`）。
 
-        三条设计约束：
-        - **正常回答字节级不变**：没命中上述形态时直接原样返回（收尾的空白整理也只在真的删过东西时才做）；
+        四条设计约束：
+        - **绝不触碰正文的换行符**：不再做 `\\n{3,} → \\n\\n` 这类压缩，也不整体 `strip()`。
+          删除只发生在「元数据头整块」或「整行装饰线（连同它自己那一行的换行）」上，
+          其余位置的 `\\n`、空行、表格行序一律原样保留 ——
+          早期版本压缩换行会把 markdown 表格压成一坨、也会把 `65~79岁` 这类区间挤成 `6579岁`。
+        - **表格感知**：删除装饰线前先看相邻行，任一侧是表格行（含 `|`）就保留，
+          避免删掉单列表格的分隔行把表格结构打断。
+        - **正常回答字节级不变**：没命中上述形态时直接原样返回。
         - **不改 ResearchAgent 的 prompt**：那三段结构是 Swarm 里 LeadAgent 的输入契约；
-        - **只在单 Agent 直出路径调用**：Swarm 的答案是 Lead 重写过的正文，
+          **只在单 Agent 直出路径调用**：Swarm 的答案是 Lead 重写过的正文，
           它可能合法使用 `---` 做分隔，不该在这里被动刀。
         """
         if not isinstance(answer, str) or not answer:
@@ -741,13 +763,25 @@ class SwarmCoordinator:
                             break
                 text = text[:head_idx] + text[end:]
 
-        # 2) 装饰性分隔线 + 节标记前多余的标题号
+        # 2) 节标记前多余的标题号（`# 【综合评估】` → `【综合评估】`）
         text = _STRAY_HASH.sub(r"\1", text)
-        text = _ISOLATED_RULE.sub("", text)
 
-        # 3) 只有真的删过东西时，才整理因删除产生的多余空行
-        if text != answer:
-            text = re.sub(r"\n{3,}", "\n\n", text).strip()
+        # 3) 装饰性分隔线：逐行判断 + 表格感知。
+        #    删除范围严格限于「该行自身连同它自己的换行」：
+        #    不做跨行合并、不压缩正文里既有的换行与空行、不整体 strip，
+        #    因此 Markdown 表格的行序与区间连接符（65~79 岁）都不会被破坏。
+        lines = text.splitlines(keepends=True)
+        if any(_ISOLATED_RULE_LINE.match(ln.rstrip("\r\n")) for ln in lines):
+            kept: List[str] = []
+            for i, ln in enumerate(lines):
+                if _ISOLATED_RULE_LINE.match(ln.rstrip("\r\n")):
+                    prev_ln = lines[i - 1].rstrip("\r\n") if i > 0 else ""
+                    next_ln = lines[i + 1].rstrip("\r\n") if i + 1 < len(lines) else ""
+                    if "|" not in prev_ln and "|" not in next_ln:
+                        continue
+                kept.append(ln)
+            text = "".join(kept)
+
         return text
 
     # 最终答案只处理这两类问题：缺免责声明、缺就医提醒。

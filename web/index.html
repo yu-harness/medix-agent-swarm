@@ -156,9 +156,44 @@ const headers = () => {
   return h;
 };
 
-/* ---------------- Markdown（增量渲染 + 清洗）---------------- */
+/* ---------------- Markdown（增量渲染 + 保真预处理）---------------- */
+// gfm: 表格/删除线等 GFM 语法；breaks: 单个回车按软换行渲染成 <br>
 marked.setOptions({ gfm: true, breaks: true });
-const md = (text) => DOMPurify.sanitize(marked.parse(text || ''));
+
+// 1) 表格保真：marked 的表格是**块级语法**，紧跟在段落后面（只有一个 \n）时
+//    往往不被识别，整块表格会被当普通文本 + <br> 渲染 —— 看起来就是「表格被压平」。
+//    这里只在**需要时补一个空行**，绝不删除、合并或重写任何既有换行。
+function normalizeTables(text) {
+  const lines = (text || '').split('\n');
+  const tableish = (s) => /\|/.test(s || '');
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const cur = lines[i];
+    const inTable = tableish(cur);
+    const prevIsTable = out.length ? tableish(out[out.length - 1]) : false;
+    if (inTable && !prevIsTable && out.length && out[out.length - 1].trim() !== '') {
+      out.push('');                                   // 表格块前补空行
+    }
+    out.push(cur);
+    const next = lines[i + 1];
+    if (inTable && !tableish(next || '') && (next || '').trim() !== '') {
+      out.push('');                                   // 表格块后补空行
+    }
+  }
+  return out.join('\n');
+}
+
+// 2) 区间连接符保真：把「数字之间的 ASCII ~」转义成字面量。
+//    GFM 的删除线语法是 `~~`，某些模型会把区间写成 `65~~79岁` 而整段被划掉；
+//    转义后 `~` 一定按字面渲染。全角 `～` 在 GFM 里没有语义，原样保留即可。
+function protectRangeTildes(text) {
+  return (text || '').replace(
+    /(\d)(\s*)(~{1,2})(\s*)(\d)/g,
+    (m, a, s1, t, s2, b) => a + s1 + t.replace(/~/g, '\\~') + s2 + b,
+  );
+}
+
+const md = (text) => DOMPurify.sanitize(marked.parse(protectRangeTildes(normalizeTables(text || ''))));
 
 /* ---------------- 来源头解析 ---------------- */
 const EVIDENCE_RE = /【资料\s*(\d+)\s*[｜|]\s*来源：([^｜|】]+)(?:[｜|]\s*类型：([^】]+))?】/g;
@@ -202,9 +237,33 @@ function fallbackSources(body) {
   return out;
 }
 
-/* ---------------- 高危要素识别 ---------------- */
-const RED_FLAGS = ['立即就医', '拨打 120', '拨打120', '拨打急救', '急救电话', '急诊', '急危重症', '尽快就医', '立即就诊', '马上就医'];
-const isHighRisk = (text) => RED_FLAGS.some((k) => (text || '').includes(k));
+/* ---------------- 高危要素识别（红旗横幅的唯一判据）----------------
+ * 旧实现只看「答案里有没有 急诊 / 120」：普通指标咨询的答案常含
+ * 「若伴胸痛请急诊」这类**转诊提示**，于是误点亮红色急症横幅。
+ * 现在报警必须来自**提问或后端**，绝不由答案文本单独触发：
+ *   1) 后端信号优先：SSE done.extra.risk_level === 'high'（由 detect_high_risk_signals(提问) 判定）；
+ *      后端明确给 'low' 时**绝不误报**；
+ *   2) 后端没给信号时兜底：提问命中急危症状词 且 答案确已给出就医指引。
+ * 答案关键词只用于「是否已含就医指引」的展示判断，不再单独作为报警依据。
+ */
+const QUERY_RED_FLAGS = [
+  '胸痛', '胸骨后', '心梗', '心肌梗死', '昏迷', '意识不清', '意识模糊',
+  '呼吸困难', '喘不上气', '呼吸急促', '窒息', '抽搐', '大出血', '咯血', '呕血',
+  '偏瘫', '言语不清', '说不出话', '剧烈头痛', '休克', '晕倒', '猝死', '濒死',
+];
+const ANSWER_EMERGENCY_HINTS = [
+  '立即就医', '拨打 120', '拨打120', '拨打急救', '急救电话', '急诊',
+  '急危重症', '尽快就医', '立即就诊', '马上就医',
+];
+const queryIsHighRisk = (q) => QUERY_RED_FLAGS.some((k) => (q || '').includes(k));
+const answerHasEmergency = (t) => ANSWER_EMERGENCY_HINTS.some((k) => (t || '').includes(k));
+
+function shouldShowRiskBanner(done, question, answer) {
+  const level = done?.extra?.risk_level ?? done?.risk_level;
+  if (level === 'high') return true;                 // 后端权威信号
+  if (level === 'low') return false;                 // 后端明确低危 → 绝不误报
+  return queryIsHighRisk(question) && answerHasEmergency(answer);   // 兜底：提问高危且已给指引
+}
 
 /* ---------------- 渲染工具 ---------------- */
 function stageChips(status) {
@@ -379,6 +438,9 @@ async function ask(question) {
   addUser(question);
   const shell = addAssistantShell();
   shell.body.innerHTML = '<span class="text-slate-400">正在思考…</span>';
+  // 提问本身就是急危症状时立刻亮横幅（这是确定性信号，不必等答案）；
+  // 后端信号到达后会再判一次，若后端判为 low 会把它撤掉（以权威信号为准）。
+  if (queryIsHighRisk(question)) shell.risk.innerHTML = riskBanner();
   let raw = '', lastRender = 0, status = null;
 
   const paint = (force) => {
@@ -437,7 +499,8 @@ async function ask(question) {
           state.sessionId = payload.session_id || state.sessionId;
           raw = payload.answer || raw;
           const { body, items } = splitEvidence(raw);
-          if (isHighRisk(raw)) shell.risk.innerHTML = riskBanner();
+          // 红旗横幅：以后端 risk_level 为准（其次提问初筛兜底），答案关键词不再单独触发
+          shell.risk.innerHTML = shouldShowRiskBanner(payload, question, raw) ? riskBanner() : '';
           shell.body.innerHTML = md(body);
           shell.badge.innerHTML = badge(payload);
           shell.evidence.innerHTML = evidenceDrawer(items, fallbackSources(body));
