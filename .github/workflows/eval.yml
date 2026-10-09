@@ -62,7 +62,11 @@ jobs:
       - name: Prepare local config
         run: cp config.example.py config.py
 
-      # 仓库里的测试在 examples/ 下（没有 tests/ 目录），37 passed / 26 skipped 为本地基线
+      # 仓库里的测试在 examples/ 下（没有 tests/ 目录）。
+      # 需要真实 LLM 的端到端脚本 examples/test_all.py 整体标了 `live`，
+      # 由 pytest.ini 的 `-m "not live"` 默认排除 —— CI 无密钥，跑了必然红且每次烧钱。
+      # 本地（有密钥）想跑：pytest -m live
+      # 基线：37 passed, 1 skipped, 25 deselected
       - name: Run unit tests
         run: python -m pytest examples/ -q
 

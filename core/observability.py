@@ -200,7 +200,18 @@ _spans_var: contextvars.ContextVar[Optional[SpanRecorder]] = contextvars.Context
 
 
 def begin_observability() -> tuple[TokenLedger, SpanRecorder]:
-    """在请求入口调用：为本请求启用账本与 Span 记录。"""
+    """在请求入口调用：为本请求启用账本与 Span 记录。
+
+    幂等：同一请求上下文里若已建过账本，就复用同一对对象并返回。
+    这样入口层（如 API 的 SSE 端点）可以先建账本、再把同一个对象交给下游，
+    从而在流式响应过程中**实时读到真实的阶段 Span**（前端进度展示要用），
+    而不是等整条请求结束才能对账。
+    """
+    ledger = _ledger_var.get()
+    spans = _spans_var.get()
+    if ledger is not None and spans is not None:
+        return ledger, spans
+
     ledger = TokenLedger()
     spans = SpanRecorder()
     _ledger_var.set(ledger)

@@ -11,7 +11,8 @@ from typing import Any, Dict, Optional
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from loguru import logger
 from pydantic import BaseModel, Field
 
@@ -20,6 +21,16 @@ sys.path.insert(0, str(project_root))
 load_dotenv(project_root / ".env")
 
 from swarm import get_shared_coordinator, process_with_swarm  # noqa: E402
+from core.observability import (  # noqa: E402
+    ROOT_SPAN,
+    ROUTE_SPAN,
+    SYNTH_SPAN,
+    WORKER_POOL_SPAN,
+    begin_observability,
+)
+
+# 单页问诊 Demo 的静态目录（无构建步骤，浏览器直开）
+WEB_DIR = project_root / "web"
 
 
 def _cors_origins() -> list[str]:
@@ -76,6 +87,20 @@ async def health():
     return {"status": "ok"}
 
 
+@app.get("/", include_in_schema=False)
+async def index():
+    """问诊 Web Demo 主页面：`uvicorn api.app:app` 后直接打开就能用。"""
+    page = WEB_DIR / "index.html"
+    if not page.exists():
+        raise HTTPException(status_code=404, detail="web/index.html 不存在")
+    return FileResponse(page)
+
+
+# 页面本体是自包含单文件；挂载目录是为了以后加图标/截图等静态资源不用改代码
+if WEB_DIR.exists():
+    app.mount("/web", StaticFiles(directory=str(WEB_DIR)), name="web")
+
+
 @app.post("/v1/chat", response_model=ChatResponse, dependencies=[Depends(verify_api_key)])
 async def chat(body: ChatRequest):
     # 链路追踪：一次请求一个 trace_id，贯穿 coordinator → agent → loop → LLM/Skill 日志
@@ -127,15 +152,51 @@ def _sse(event: str, data: Dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+# 阶段映射：(已完成的 Span, 前端阶段 key, 此刻正在做什么)。
+# Span 是「阶段结束时」打点的，所以每个标签描述的是**最后一个已完成阶段之后**的动作；
+# 顺序即优先级，取第一个命中的（越是下游的阶段越靠前）。
+_STATUS_STAGES = (
+    (SYNTH_SPAN, "synthesize", "Lead 综合汇总中"),
+    (WORKER_POOL_SPAN, "synthesize_pending", "汇总中"),
+    (ROUTE_SPAN, "workers", "多专家并行执行中"),
+    (ROOT_SPAN, "route", "检索与任务分解中"),
+)
+
+
+def _status_from_spans(recorder, t0: float) -> Optional[Dict[str, Any]]:
+    """把真实的 Span 记录翻译成前端要展示的协作状态（不是编造的进度条）。"""
+    try:
+        spans = recorder.snapshot()
+    except Exception:
+        return None
+
+    names = {str(s.get("name") or "") for s in spans}
+    phase, label = "received", "请求已接收"
+    for span_name, key, text in _STATUS_STAGES:
+        if span_name in names:
+            phase, label = key, text
+            break
+
+    return {
+        "phase": phase,
+        "label": label,
+        "agents": sorted(n.split("_", 1)[1] for n in names if n.startswith("worker_")),
+        "skills": sorted(n.split("_", 1)[1] for n in names if n.startswith("skill_")),
+        "llm_calls": sum(1 for n in names if n.startswith("llm_call_")),
+        "elapsed_ms": round((time.perf_counter() - t0) * 1000, 1),
+    }
+
+
 @app.post("/v1/chat/stream", dependencies=[Depends(verify_api_key)])
 async def chat_stream(body: ChatRequest):
     """
     流式版 /v1/chat：用 SSE 逐段推送答案正文，结束时推一次元信息。
 
     事件类型：
-    - delta: {"text": "..."}  答案片段，边生成边推
-    - done:  答案、TTFT、耗时等元信息
-    - error: {"message": "..."}
+    - status: 协作阶段（由真实 Span 记录推导，见 _status_from_spans），用于前端状态胶囊
+    - delta:  {"text": "..."}  答案片段，边生成边推
+    - done:   答案、TTFT、耗时、Token 与费用账单等元信息
+    - error:  {"message": "..."}
 
     client_ttft_ms 是从收到请求到第一个片段到达客户端的时间，即用户感知的响应时间；
     answer_ttft_ms 是模型侧首个 token 的时间。两者之差就是检索与编排等前置开销。
@@ -147,6 +208,11 @@ async def chat_stream(body: ChatRequest):
     context = {"trace_id": trace_id}
     if body.user_id:
         context["user_id"] = body.user_id
+
+    # 可观测性：必须在 create_task 之前建账本 —— 子任务会复制这份上下文，
+    # 于是下游（coordinator → worker → agent_loop）写进的是同一个 Span 记录器，
+    # 这里就能在流式过程中实时读出真实阶段（_status_from_spans）。
+    _, spans = begin_observability()
 
     t0 = time.perf_counter()
     first_delta_ms: Optional[float] = None
@@ -186,9 +252,30 @@ async def chat_stream(body: ChatRequest):
     producer = asyncio.create_task(produce())
 
     async def event_source():
+        last_phase: Optional[str] = None
+        getter: Optional["asyncio.Task"] = None
         try:
+            # 先推一帧初始状态，前端一收到请求就能点亮第一颗胶囊
+            initial = _status_from_spans(spans, t0)
+            if initial:
+                last_phase = initial["phase"]
+                yield _sse("status", initial)
+
             while True:
-                item = await queue.get()
+                # 复用同一个 getter task，避免 wait_for 取消时丢掉恰好到达的片段
+                if getter is None:
+                    getter = asyncio.create_task(queue.get())
+                done, _ = await asyncio.wait({getter}, timeout=0.4)
+                if not done:
+                    # 片段还没来：顺手报一次真实阶段变化
+                    st = _status_from_spans(spans, t0)
+                    if st and st["phase"] != last_phase:
+                        last_phase = st["phase"]
+                        yield _sse("status", st)
+                    continue
+
+                item = getter.result()
+                getter = None
                 if item is None:
                     break
                 kind, payload = item
