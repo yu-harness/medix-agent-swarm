@@ -22,6 +22,28 @@ python main.py
 uvicorn api.app:app --host 0.0.0.0 --port 8000
 ```
 
+两个端点（都需要 `X-API-Key`）：
+
+- `POST /v1/chat` —— 一次性返回完整答案
+- `POST /v1/chat/stream` —— SSE 流式返回，事件为 `delta`（答案片段）、`done`（元信息）、`error`
+
+```bash
+curl -N -X POST http://localhost:8000/v1/chat/stream \
+  -H "X-API-Key: $APP_API_KEY" -H "Content-Type: application/json" \
+  -d '{"question": "高血压平时要注意什么"}'
+```
+
+`done` 事件里有两个首 token 时间：`client_ttft_ms`（从发出请求到第一个片段到达，即用户感知的响应时间）与 `answer_ttft_ms`（模型侧首个 token）。两者之差就是检索与编排等前置开销。
+
+实测（`eval/scripts/run_ttft_eval.py`，20 条分层抽样，与延迟基线同源同抽样）：
+
+| 路由 | 用户感知首字 p50 | 整段总时长 p50 |
+|---|---|---|
+| 单 Agent（17 条） | 2.7 s | 9.8 s |
+| Swarm（3 条） | 9.7 s | 14.9 s |
+
+单 Agent 路由流式后，用户在 2.7 秒就能看到内容，不必等整段 9.8 秒；Swarm 路由推的是 Lead 汇总那一层（worker 的中间结果是过程、不是答案），首字仍要等 worker 跑完——瓶颈在编排而非生成，Lead 汇总的模型侧首 token 只有 0.6 秒。
+
 Docker：
 
 ```bash
@@ -59,7 +81,7 @@ Agents：Consultation / Diagnostic / Research + LeadAgent / Coordinator
 
 ```
 agents/  core/  swarm/  memory/  knowledge/  research/
-constraints/  validation/  eval/  api/  .agents/skills/  main.py
+constraints/  validation/  eval/  api/  .claude/skills/  main.py
 ```
 
 MIT License
